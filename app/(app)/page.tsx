@@ -57,8 +57,8 @@ export default function Dashboard() {
         <div className="card">
           <h3>Each month</h3>
           <ol className="steps">
-            <li className={empty ? '' : 'muted'}><b>Employees</b> — upload your employee sheet once (with each person&apos;s monthly salary). <Link href="/import">Import</Link></li>
-            <li><b>Attendance</b> — upload the month&apos;s attendance sheet. <Link href="/attendance">Attendance</Link></li>
+            <li className={empty ? '' : 'muted'}><b>Employees</b> — add people one by one (with their monthly salary), or upload a sheet. <Link href="/employees">Employees</Link></li>
+            <li><b>Attendance</b> — mark each day in the monthly grid. <Link href="/attendance">Attendance</Link></li>
             <li><b>Payslips</b> — check the amounts, generate, download. <Link href="/payroll">Payroll</Link></li>
           </ol>
           {data.month && stats.missing > 0 && <div className="note warn" style={{ marginTop: 10 }}>{stats.missing} employee(s) have no attendance for {monthLabel(data.month)}.</div>}

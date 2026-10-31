@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useApp } from '@/components/AppContext';
 import { AttendanceModal } from '@/components/AttendanceModal';
+import { AttendanceGrid } from '@/components/AttendanceGrid';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/fetch-all';
 import { useLoad } from '@/lib/use-load';
@@ -29,6 +30,7 @@ export default function AttendancePage() {
   const [y, m] = ym.split('-').map(Number);
   const dim = daysInMonth(y, m);
 
+  const [mode, setMode] = useState<'enter' | 'upload'>('enter');
   const [parsed, setParsed] = useState<ParsedAttendance | null>(null);
   const [assign, setAssign] = useState<string[]>([]);
   const [fileName, setFileName] = useState('');
@@ -42,7 +44,7 @@ export default function AttendancePage() {
       fetchAll<Employee>((a, b) => sb.from('employees').select('*').is('archived_at', null).order('emp_code').range(a, b)),
       fetchAll<Attendance>((a, b) => sb.from('attendance').select('*').eq('month', month).range(a, b)),
     ]);
-    return { emps, att };
+    return { month, emps, att };
   }, [month]);
   const emps = data?.emps ?? [];
   const attByEmp = useMemo(() => new Map((data?.att ?? []).map(a => [a.employee_id, a])), [data]);
@@ -118,11 +120,21 @@ export default function AttendancePage() {
       <div className="page-h">
         <h2>Attendance</h2>
         <input type="month" value={ym} onChange={e => { setYm(e.target.value || ym); setParsed(null); }} />
+        {canEdit && (
+          <div className="seg">
+            <button className={mode === 'enter' ? 'on' : ''} onClick={() => setMode('enter')}>Enter in app</button>
+            <button className={mode === 'upload' ? 'on' : ''} onClick={() => setMode('upload')}>Upload a sheet (optional)</button>
+          </div>
+        )}
         <span className="muted">{loading ? 'Loading…' : `${(data?.att.length ?? 0)} of ${emps.length} employees have attendance for ${monthLabel(month)}`}</span>
       </div>
       {error && <p className="err">{error}</p>}
 
-      {canEdit && (
+      {mode === 'enter' && (data && data.month === month
+        ? <AttendanceGrid month={month} emps={data.emps} att={data.att} readOnly={!canEdit} onSaved={reload} />
+        : <p className="muted">Loading…</p>)}
+
+      {mode === 'upload' && canEdit && (
         <div className="card">
           <h3>Upload attendance sheet for {monthLabel(month)}</h3>
           <p className="muted small" style={{ marginTop: 0 }}>
@@ -136,7 +148,7 @@ export default function AttendancePage() {
         </div>
       )}
 
-      {parsed && (
+      {mode === 'upload' && parsed && (
         <div className="card">
           <h3>Check before saving — {fileName}</h3>
           {parsed.warnings.length > 0 && <div className="note warn"><ul>{parsed.warnings.slice(0, 8).map((w, i) => <li key={i}>{w}</li>)}</ul></div>}
@@ -179,7 +191,7 @@ export default function AttendancePage() {
         </div>
       )}
 
-      <div className="card">
+      <div className="card" style={mode === 'upload' ? undefined : { display: 'none' }}>
         <h3>Saved for {monthLabel(month)} {missing > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>{missing} missing</span>}</h3>
         <div className="tbl-wrap">
           <table>

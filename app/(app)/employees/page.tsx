@@ -68,7 +68,7 @@ export default function EmployeesPage() {
               ))}
               {!list.length && !loading && (
                 <tr><td colSpan={6} className="muted" style={{ textAlign: 'center', padding: 30 }}>
-                  {all.length ? 'No employees match.' : 'No employees yet — use Import / Export to upload your employee sheet.'}
+                  {all.length ? 'No employees match.' : 'No employees yet — click “Add employee”, or use Import / Export to upload a sheet.'}
                 </td></tr>
               )}
             </tbody>
