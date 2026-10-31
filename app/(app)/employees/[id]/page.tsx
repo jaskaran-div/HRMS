@@ -12,7 +12,9 @@ import { fmtDate, monthLabel } from '@/lib/dates';
 import { initials, inr } from '@/lib/format';
 import { payFor, rulesFrom } from '@/lib/payroll';
 import { EMPLOYEE_FIELDS, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
-import { downloadPayslips, openPayslips, payslipFilename } from '@/lib/payslip-pdf';
+import { downloadPayslips, openPayslips, printPayslips, payslipFilename } from '@/lib/payslip-pdf';
+import { buildPayslip } from '@/lib/payroll';
+import { todayISO } from '@/lib/dates';
 import type { Attendance, Employee, PayslipRow } from '@/lib/types';
 
 type Tab = 'profile' | 'pay' | 'payslips';
@@ -134,6 +136,7 @@ export default function EmployeePage() {
                           <td className="n">{p.paidDays}</td><td className="n">{p.lopDays}</td>
                           <td className="n">{inr(p.gross)}</td><td className="n"><b>{inr(p.net)}</b></td>
                           <td style={{ textAlign: 'right' }}>
+                            {(() => { const d = buildPayslip(emp, a, rules, todayISO()); return (<><button className="btn sm" onClick={() => openPayslips([d], company)}>Payslip</button>{' '}<button className="btn sm" onClick={() => printPayslips([d], company)}>Print</button>{' '}<button className="btn sm" onClick={() => downloadPayslips([d], company, payslipFilename(d))}>PDF</button>{' '}</>); })()}
                             {canEdit && <button className="btn sm" onClick={() => setAttModal({ month: a.month, existing: a })}>Edit</button>}{' '}
                             {isAdmin && <button className="btn sm danger" onClick={() => deleteMonth(a)}>Delete</button>}
                           </td>
@@ -161,6 +164,7 @@ export default function EmployeePage() {
                         <td><b>{monthLabel(s.month)}</b></td><td>{fmtDate(s.pay_date)}</td><td className="n">{inr(s.net_pay)}</td>
                         <td style={{ textAlign: 'right' }}>
                           <button className="btn sm" onClick={() => openPayslips([s.data], company)}>View</button>{' '}
+                          <button className="btn sm" onClick={() => printPayslips([s.data], company)}>Print</button>{' '}
                           <button className="btn sm primary" onClick={() => downloadPayslips([s.data], company, payslipFilename(s.data))}>Download PDF</button>
                         </td>
                       </tr>

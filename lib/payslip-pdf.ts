@@ -191,5 +191,10 @@ export async function openPayslips(slips: PayslipData[], c: PayslipCompany) {
   await pm.createPdf(payslipDocument(slips, c)).open();
 }
 
+export async function printPayslips(slips: PayslipData[], c: PayslipCompany) {
+  const pm = await pdfMake();
+  await pm.createPdf(payslipDocument(slips, c)).print();
+}
+
 export const payslipFilename = (p: PayslipData) =>
   `Payslip_${p.employee.code}_${monthLabel(p.month, false).replace(' ', '_')}.pdf`;

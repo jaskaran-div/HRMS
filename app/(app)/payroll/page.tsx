@@ -9,7 +9,8 @@ import { useLoad } from '@/lib/use-load';
 import { buildPayslip, payFor, rulesFrom } from '@/lib/payroll';
 import { currentYM, fmtDate, monthLabel, monthStart, shiftMonth, todayISO } from '@/lib/dates';
 import { inr, inrWhole } from '@/lib/format';
-import { downloadPayslips, openPayslips, payslipFilename } from '@/lib/payslip-pdf';
+import { downloadPayslips, openPayslips, printPayslips, payslipFilename } from '@/lib/payslip-pdf';
+import type { PayslipData } from '@/lib/types';
 import type { Attendance, Employee, PayslipRow } from '@/lib/types';
 
 const KEEP_MONTHS = 2;
@@ -74,6 +75,23 @@ export default function PayrollPage() {
     reload();
   }
 
+  /** Live numbers from the system when attendance exists (works for any month); otherwise the saved copy. */
+  const slipData = (r: (typeof rows)[number]): PayslipData | null =>
+    r.att && r.status !== 'nosalary' ? buildPayslip(r.emp, r.att, rules, r.slip?.pay_date ?? payDate) : r.slip?.data ?? null;
+
+  async function saveOne(r: (typeof rows)[number]) {
+    const d = slipData(r);
+    if (!d || !inWindow) return;
+    const sb = supabaseBrowser();
+    const { error } = await sb.from('payslips').upsert(
+      { employee_id: r.emp.id, month, pay_date: payDate, net_pay: d.net, data: { ...d, payDate }, generated_at: new Date().toISOString() },
+      { onConflict: 'employee_id,month' });
+    if (error) { notify(error.message, 'err'); return; }
+    await sb.rpc('purge_old_payslips', { keep_months: KEEP_MONTHS });
+    notify(`Payslip saved for ${r.emp.name}`);
+    reload();
+  }
+
   async function downloadAll() {
     const slips = [...(data?.slips ?? [])].sort((a, b) => a.data.employee.code.localeCompare(b.data.employee.code, undefined, { numeric: true }));
     if (!slips.length) return;
@@ -130,12 +148,20 @@ export default function PayrollPage() {
                   ) : <td colSpan={5} />}
                   <td>{badge(r.status)}{r.slip && <span className="muted small"> · {fmtDate(r.slip.pay_date)}</span>}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {r.slip && (
-                      <>
-                        <button className="btn sm" onClick={() => openPayslips([r.slip!.data], company)}>View</button>{' '}
-                        <button className="btn sm primary" onClick={() => downloadPayslips([r.slip!.data], company, payslipFilename(r.slip!.data))}>PDF</button>
-                      </>
-                    )}
+                    {(() => {
+                      const d = slipData(r);
+                      if (!d) return null;
+                      return (
+                        <>
+                          <button className="btn sm" onClick={() => openPayslips([d], company)}>View</button>{' '}
+                          <button className="btn sm" onClick={() => printPayslips([d], company)}>Print</button>{' '}
+                          <button className="btn sm" onClick={() => downloadPayslips([d], company, payslipFilename(d))}>PDF</button>
+                          {canEdit && inWindow && (r.status === 'new' || r.status === 'stale') && (
+                            <> <button className="btn sm primary" onClick={() => saveOne(r)}>{r.status === 'stale' ? 'Regenerate' : 'Generate'}</button></>
+                          )}
+                        </>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}
