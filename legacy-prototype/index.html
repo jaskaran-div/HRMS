@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>HR Employee Portal</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{color-scheme:light;--bg:#f5f7fb;--card:#fff;--ink:#1e2a3b;--mute:#6b778c;--line:#e6eaf2;--brand:#3b5bdb;--brand-d:#2f49b8;--soft:#eef2ff;--ok:#0f9d6b;--okbg:#e3f7ef;--bad:#d64545;--badbg:#fdeaea;--warnbg:#fff4e0;--warn:#b7791f;--shadow:0 1px 3px rgba(20,30,60,.06),0 4px 14px rgba(20,30,60,.05)}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:14.5px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;background:var(--bg);color:var(--ink);display:flex;min-height:100vh}
+button{font:inherit;cursor:pointer}
+.btn{border:1px solid var(--line);background:#fff;color:var(--ink);padding:8px 14px;border-radius:8px;font-weight:500;transition:.15s}
+.btn:hover{border-color:#c9d2e6;background:#fafbfe}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.primary:hover{background:var(--brand-d)}
+.btn.danger{color:var(--bad)}
+.btn.danger:hover{background:var(--badbg);border-color:#f3c1c1}
+.btn.sm{padding:5px 10px;font-size:13px}
+
+/* sidebar */
+aside{width:248px;background:#fff;border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;flex-shrink:0}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+.logo{width:36px;height:36px;border-radius:10px;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:700}
+.logo.has-img{background:#fff;border:1px solid var(--line);overflow:hidden;padding:2px}
+.logo img{width:100%;height:100%;object-fit:contain}
+.brand b{display:block;font-size:15px;line-height:1.2}
+.brand small{color:var(--mute);font-size:12px}
+.nav-h{font-size:11px;letter-spacing:.08em;color:var(--mute);text-transform:uppercase;padding:14px 10px 4px}
+.nav{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;padding:9px 10px;border-radius:8px;color:#3b4760;font-weight:500}
+.nav:hover{background:#f3f5fa}
+.nav.on{background:var(--soft);color:var(--brand)}
+.nav .ic{width:20px;text-align:center}
+.nav .ct{margin-left:auto;background:#eceff6;color:var(--mute);font-size:12px;padding:1px 8px;border-radius:20px}
+.nav.on .ct{background:#dbe3ff;color:var(--brand)}
+.side-foot{margin-top:auto;font-size:12px;color:var(--mute);padding:8px}
+
+/* main */
+.content{flex:1;min-width:0}
+.topbar{background:#fff;border-bottom:1px solid var(--line);padding:12px 28px;display:flex;gap:12px;align-items:center;position:sticky;top:0;z-index:6}
+.topbar h1{font-size:18px;margin:0;white-space:nowrap}
+.search{margin-left:auto;display:flex;gap:8px;position:relative;width:min(440px,100%)}
+.search input{flex:1;font:inherit;padding:9px 14px;border-radius:9px;border:1px solid var(--line);background:#f8f9fc}
+.search input:focus,.field:focus{outline:2px solid #c7d2ff;border-color:var(--brand);background:#fff}
+.suggest{position:absolute;top:100%;left:0;right:70px;background:#fff;border:1px solid var(--line);border-radius:10px;margin-top:4px;z-index:9;overflow:hidden;box-shadow:var(--shadow)}
+.suggest div{padding:9px 14px;cursor:pointer;display:flex;justify-content:space-between;gap:12px}
+.suggest div:hover{background:var(--soft)}
+main{padding:24px 28px;max-width:1180px}
+.page-h{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.page-h h2{margin:0;font-size:21px}
+.page-h .sp{flex:1}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow)}
+.card + .card{margin-top:16px}
+.muted{color:var(--mute)}
+.empty{text-align:center;padding:56px 16px}
+.empty .big{font-size:44px}
+.empty h2{margin:8px 0 6px}
+
+/* dashboard */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:16px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:var(--shadow);display:flex;gap:14px;align-items:center}
+.kpi .ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:20px;background:var(--soft)}
+.kpi small{color:var(--mute);display:block}
+.kpi b{font-size:22px}
+.dept-row{display:grid;grid-template-columns:150px 1fr 40px;gap:12px;align-items:center;padding:7px 0}
+.bar{height:9px;border-radius:5px;background:#edf0f7;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--brand);border-radius:5px}
+.bar.ok i{background:var(--ok)}
+
+/* list */
+.tools{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.field,select{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink)}
+.tools .field{flex:1;min-width:200px}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);font-weight:600;background:#f8f9fc}
+th,td{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:#f6f8ff}
+.who-c{display:flex;align-items:center;gap:10px}
+.av{width:34px;height:34px;border-radius:50%;background:var(--soft);color:var(--brand);display:grid;place-items:center;font-weight:700;font-size:13px;flex-shrink:0}
+.pill{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600}
+.pill.ok{background:var(--okbg);color:var(--ok)}
+.pill.warn{background:var(--warnbg);color:var(--warn)}
+.pill.bad{background:var(--badbg);color:var(--bad)}
+.pill.gray{background:#eef0f5;color:var(--mute)}
+
+/* employee page */
+.hero{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.hero .av{width:64px;height:64px;font-size:22px}
+.hero h2{margin:0;font-size:22px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.tabs{display:flex;gap:4px;margin:18px 0 0;border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{border:0;border-bottom:3px solid transparent;background:none;padding:10px 16px;color:var(--mute);white-space:nowrap;font-weight:500}
+.tabs button.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px}
+.kv small{display:block;color:var(--mute);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+.kv span{font-weight:500;word-break:break-word}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:#f6f8fd;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.stat b{display:block;font-size:20px}
+.stat small{color:var(--mute)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+h3{margin:0 0 8px;font-size:15px}
+.warn{color:var(--bad)}
+
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(20,30,60,.4);display:grid;place-items:center;z-index:30;padding:12px}
+.mbox{background:#fff;border-radius:14px;padding:22px;width:100%;max-width:660px;max-height:90vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.2)}
+.mbox h3{font-size:18px;margin-bottom:14px}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.mgrid label{font-size:12px;color:var(--mute);display:flex;flex-direction:column;gap:4px;font-weight:600}
+.mgrid input{font:inherit;font-size:14.5px;font-weight:400;color:var(--ink);padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:#fff}
+.mgrid input:focus{outline:2px solid #c7d2ff;border-color:var(--brand)}
+.mgrid input[readonly]{background:#f3f5fa}
+
+/* payslip */
+#payslip{background:#fff;color:#111;border:1px solid #cfd5e2;padding:30px;max-width:800px;margin:0 auto;font-size:14px}
+#payslip h3{margin:0;font-size:22px;text-align:center}
+#payslip .sub{text-align:center;color:#555;margin-bottom:14px}
+#payslip table td,#payslip table th{border:1px solid #cfd5e2;color:#111;white-space:normal;text-transform:none;letter-spacing:0;font-size:14px}
+#payslip th{background:#f0f3fa}
+#payslip .tot td{font-weight:700;background:#f7f8fc}
+#payslip .net{margin-top:12px;padding:10px 12px;border:2px solid #111;display:flex;justify-content:space-between;font-weight:700;font-size:16px}
+#payslip .sig{display:flex;justify-content:space-between;margin-top:46px;color:#444}
+#payslip .info{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin-bottom:14px}
+#payslip .info div{display:flex;justify-content:space-between;border-bottom:1px dotted #bbb;padding:2px 0}
+
+@media (max-width:860px){
+  body{flex-direction:column}
+  aside{width:100%;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px;border-right:0;border-bottom:1px solid var(--line)}
+  .brand{padding:0 8px 0 0}.nav-h,.side-foot,.nav .ct{display:none}
+  .nav{width:auto}
+  .topbar,main{padding-left:14px;padding-right:14px}
+  .topbar h1{display:none}.search{margin-left:0}
+  #payslip .info{grid-template-columns:1fr}
+}
+@media print{
+  body *{visibility:hidden}
+  #payslip,#payslip *{visibility:visible}
+  #payslip{position:absolute;left:0;top:0;width:100%;max-width:none;border:0;padding:10mm}
+  @page{margin:8mm}
+}
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="brand"><div class="logo" id="coLogo">HR</div><div><b id="coTitle">Your Company</b><small>HR Portal</small></div></div>
+  <button class="nav" data-p="dash"><span class="ic">📊</span>Dashboard</button>
+  <button class="nav" data-p="list"><span class="ic">👥</span>All Employees<span class="ct" id="ct">0</span></button>
+  <button class="nav" id="navAdd"><span class="ic">➕</span>Add Employee</button>
+  <div class="nav-h">Data</div>
+  <button class="nav" id="btnUpload"><span class="ic">📤</span>Upload Sheet</button>
+  <button class="nav" id="btnExport"><span class="ic">📥</span>Export Excel</button>
+  <button class="nav" id="btnSample"><span class="ic">📄</span>Sample Template</button>
+  <button class="nav" id="btnDemo"><span class="ic">🧪</span>Load Demo Data</button>
+  <button class="nav" id="btnClear"><span class="ic">🗑</span>Clear All Data</button>
+  <button class="nav" data-p="co"><span class="ic">🏢</span>Company Details</button>
+  <div class="side-foot" id="status"></div>
+  <input type="file" id="file" accept=".xlsx,.xls,.csv" hidden>
+</aside>
+
+<div class="content">
+  <div class="topbar">
+    <h1 id="pageTitle">Dashboard</h1>
+    <div class="search">
+      <input id="q" placeholder="Search by Employee ID — e.g. EMP001" autocomplete="off" disabled>
+      <button id="go" class="btn primary">Search</button>
+      <div class="suggest" id="suggest" hidden></div>
+    </div>
+  </div>
+  <main id="view"></main>
+</div>
+
+<script>
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+const num = v => { const n = parseFloat(String(v ?? '').replace(/[₹,\s]/g, '')); return isNaN(n) ? 0 : n; };
+const money = n => '₹ ' + (Number(n) || 0).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const moneyS = n => '₹ ' + (Math.round(Number(n)) || 0).toLocaleString('en-IN');
+const store = {
+  get(k, d){ try { return JSON.parse(localStorage.getItem(k)) ?? d } catch { return d } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)) } catch { alert('Browser storage is full or blocked; data will not persist.') } }
+};
+function fmtDate(v){
+  if (v instanceof Date && !isNaN(v)) return v.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'});
+  return String(v ?? '');
+}
+function monthLabel(v){
+  if (v instanceof Date && !isNaN(v)) return v.toLocaleDateString('en-GB', {month:'short', year:'numeric'});
+  return String(v ?? '').trim();
+}
+function monthKey(label){ const t = Date.parse('1 ' + label); return isNaN(t) ? null : t; }
+const sortRecs = e => e.records.sort((a, b) => (monthKey(a.month) ?? 0) - (monthKey(b.month) ?? 0));
+
+function words(n){
+  n = Math.round(Number(n) || 0);
+  if (n === 0) return 'Zero';
+  const a = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const b = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  const two = x => x < 20 ? a[x] : b[Math.floor(x/10)] + (x%10 ? ' ' + a[x%10] : '');
+  const three = x => (x >= 100 ? a[Math.floor(x/100)] + ' Hundred' + (x%100 ? ' ' : '') : '') + (x%100 ? two(x%100) : '');
+  const parts = [[10000000,'Crore'],[100000,'Lakh'],[1000,'Thousand']];
+  let out = [];
+  for (const [d, name] of parts){ if (n >= d){ out.push(three(Math.floor(n/d)) + ' ' + name); n %= d; } }
+  if (n) out.push(three(n));
+  return out.join(' ');
+}
+
+/* ---------- column mapping ---------- */
+const FIELDS = {
+  id:['employeeid','empid','empcode','employeecode','id','empno','employeeno','staffid','code'],
+  name:['name','employeename','empname','fullname'],
+  dept:['department','dept'],
+  desig:['designation','position','role','jobtitle','title'],
+  email:['email','emailid','mail','officialemail'],
+  phone:['phone','mobile','contact','phoneno','mobileno','contactno'],
+  doj:['dateofjoining','doj','joiningdate','joindate'],
+  dob:['dateofbirth','dob','birthdate'],
+  location:['location','branch','office','workplace'],
+  manager:['manager','reportingmanager','reportsto'],
+  bank:['bank','bankname'],
+  account:['accountno','accountnumber','bankaccount','bankaccountno','acno'],
+  ifsc:['ifsc','ifsccode'],
+  pan:['pan','panno','pannumber'],
+  pfno:['pfno','pfnumber','uan'],
+  month:['month','payperiod','period','salarymonth'],
+  workdays:['workingdays','totalworkingdays','totaldays','daysinmonth'],
+  present:['presentdays','present','dayspresent','daysworked'],
+  absent:['absentdays','absent','daysabsent','lop','lopdays'],
+  leaves:['leavestaken','leaves','leavedays','leave','paidleave'],
+  halfdays:['halfdays','halfday'],
+  late:['lateentries','latemarks','late','latecount'],
+  leavebal:['leavebalance','leavesbalance','balanceleave','leavesremaining'],
+  grossIn:['gross','grosssalary','grosspay'],
+  netIn:['net','netsalary','netpay','takehome','netamount']
+};
+const EARN = [
+  ['basic','Basic Salary',['basic','basicsalary','basicpay']],
+  ['hra','House Rent Allowance',['hra','houserentallowance']],
+  ['da','Dearness Allowance',['da','dearnessallowance']],
+  ['conv','Conveyance Allowance',['conveyance','conveyanceallowance','transportallowance']],
+  ['med','Medical Allowance',['medical','medicalallowance']],
+  ['special','Special Allowance',['specialallowance','special']],
+  ['bonus','Bonus / Incentive',['bonus','incentive','performancebonus']],
+  ['otherEarn','Other Allowances',['otherallowance','otherallowances','allowances','otherearnings']]
+];
+const DEDUCT = [
+  ['pf','Provident Fund',['pf','providentfund','pfdeduction','employeepf']],
+  ['esi','ESI',['esi','esideduction']],
+  ['pt','Professional Tax',['professionaltax','pt']],
+  ['tds','Income Tax (TDS)',['tds','incometax','tax']],
+  ['loan','Loan / Advance',['loan','advance','loanrecovery','salaryadvance']],
+  ['lopAmt','Loss of Pay',['lossofpay','lopamount','lopdeduction']],
+  ['otherDed','Other Deductions',['otherdeduction','otherdeductions','deductions']]
+];
+const LOOKUP = {};
+Object.entries(FIELDS).forEach(([k, al]) => al.forEach(a => LOOKUP[norm(a)] = ['f', k]));
+EARN.forEach(([k,l,al]) => [...al, l].forEach(a => LOOKUP[norm(a)] = ['e', k]));
+DEDUCT.forEach(([k,l,al]) => [...al, l].forEach(a => LOOKUP[norm(a)] = ['d', k]));
+
+/* ---------- parse sheet ---------- */
+function parseRows(rows){
+  const db = {}; let skipped = 0;
+  for (const row of rows){
+    const rec = {f:{}, e:{}, d:{}, x:{}};
+    for (const [h, v] of Object.entries(row)){
+      if (v === '' || v == null) continue;
+      const hit = LOOKUP[norm(h)];
+      if (hit) rec[hit[0]][hit[1]] = v; else rec.x[String(h).trim()] = v;
+    }
+    const id = String(rec.f.id ?? '').trim().toUpperCase();
+    if (!id){ skipped++; continue; }
+    const emp = db[id] ??= {id, info:{}, extra:{}, records:[]};
+    for (const [k, v] of Object.entries(rec.f))
+      if (!['month','workdays','present','absent','leaves','halfdays','late','leavebal','grossIn','netIn'].includes(k))
+        emp.info[k] = (k === 'doj' || k === 'dob') ? fmtDate(v) : String(v);
+    for (const [k, v] of Object.entries(rec.x)) emp.extra[k] = fmtDate(v);
+    const f = rec.f, earn = {}, ded = {};
+    Object.entries(rec.e).forEach(([k, v]) => earn[k] = num(v));
+    Object.entries(rec.d).forEach(([k, v]) => ded[k] = num(v));
+    emp.records.push({
+      month: f.month ? monthLabel(f.month) : 'Current',
+      earn, ded,
+      grossIn: num(f.grossIn), netIn: num(f.netIn),
+      att: {workdays: num(f.workdays), present: num(f.present), absent: num(f.absent),
+            leaves: num(f.leaves), halfdays: num(f.halfdays), late: num(f.late),
+            leavebal: f.leavebal === undefined ? null : num(f.leavebal)}
+    });
+  }
+  Object.values(db).forEach(sortRecs);
+  return {db, skipped};
+}
+function totals(r){
+  const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
+  let gross = sum(r.earn), ded = sum(r.ded);
+  if (!gross && r.grossIn) gross = r.grossIn;
+  let net = gross - ded;
+  if (!gross && r.netIn) net = r.netIn;
+  return {gross, ded, net};
+}
+const attPct = r => r && r.att.workdays ? Math.min(100, Math.round(r.att.present / r.att.workdays * 100)) : null;
+
+/* ---------- state ---------- */
+let DB = store.get('hr_db', {});
+const CO_DEFAULT = {name:'Your Company Pvt. Ltd.', addr:'Registered Office Address, City, State - 000000', phone:'', email:'', website:'', regno:'', logo:'', signatory:'', signDesig:'Authorised Signatory', footer:'This is a computer-generated payslip.'};
+let COMPANY = {...CO_DEFAULT, ...store.get('hr_company', {})};
+let cur = null, tab = 'profile', month = null, page = 'dash';
+let listQ = '', listDept = '';
+const persist = () => store.set('hr_db', DB);
+const count = () => Object.keys(DB).length;
+
+function refreshHeader(){
+  const n = count();
+  $('#status').textContent = n ? n + ' employees · saved in this browser only. Use Export Excel to back up.' : 'No data yet';
+  $('#ct').textContent = n;
+  $('#q').disabled = !n;
+  $('#coTitle').textContent = COMPANY.name;
+  const lg = $('#coLogo');
+  if (COMPANY.logo){ lg.innerHTML = `<img src="${COMPANY.logo}" alt="">`; lg.classList.add('has-img'); }
+  else { lg.textContent = 'HR'; lg.classList.remove('has-img'); }
+}
+function go(p, emp){
+  page = p; if (emp){ cur = emp; tab = 'profile'; month = emp.records.at(-1)?.month; }
+  render();
+}
+document.querySelectorAll('.nav[data-p]').forEach(b => b.onclick = () => go(b.dataset.p));
+
+/* ---------- upload / sample / demo ---------- */
+$('#btnUpload').onclick = () => $('#file').click();
+$('#file').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  if (count() && !confirm('This replaces all current data (including any edits you made here). Use "Export Excel" first if you want a backup. Continue?')){ e.target.value = ''; return; }
+  try {
+    const wb = XLSX.read(await f.arrayBuffer(), {type:'array', cellDates:true});
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
+    const {db, skipped} = parseRows(rows);
+    if (!Object.keys(db).length){ alert('No employees found. Make sure the sheet has an "Employee ID" column in the first row.'); return; }
+    DB = db; persist(); cur = null; page = 'list';
+    refreshHeader(); render();
+    alert(Object.keys(db).length + ' employees loaded from "' + f.name + '"' + (skipped ? '\n' + skipped + ' rows skipped (no Employee ID).' : ''));
+  } catch (err){ alert('Could not read that file: ' + err.message); }
+  e.target.value = '';
+};
+$('#btnClear').onclick = () => { if (confirm('Remove all employee data from this browser?')){ DB = {}; cur = null; page = 'dash'; localStorage.removeItem('hr_db'); refreshHeader(); render(); } };
+
+function sampleRows(){
+  const base = [
+    ['EMP001','Aarav Sharma','Engineering','Senior Developer','aarav@company.com','9876500001','2021-04-12','1992-08-21','Bengaluru','Meera Nair','HDFC Bank','50100123456781','HDFC0001234','ABCPS1234D','UAN1001',45000,18000,0,3000,2500,4000,0],
+    ['EMP002','Priya Verma','Human Resources','HR Executive','priya@company.com','9876500002','2022-01-03','1995-02-14','Mumbai','Meera Nair','ICICI Bank','000401567890','ICIC0000004','BCDPV5678E','UAN1002',30000,12000,0,2000,2000,2500,0],
+    ['EMP003','Rohan Gupta','Sales','Sales Manager','rohan@company.com','9876500003','2019-09-23','1989-11-02','Delhi','Kabir Singh','SBI','31245678901','SBIN0000691','CDEGR9012F','UAN1003',55000,22000,0,4000,3000,8000,0],
+    ['EMP004','Sneha Iyer','Engineering','QA Engineer','sneha@company.com','9876500004','2023-06-19','1997-05-30','Bengaluru','Meera Nair','Axis Bank','917020045612345','UTIB0000123','DEFSI3456G','UAN1004',32000,12800,0,2000,2000,3000,0],
+    ['EMP005','Vikram Rao','Finance','Accountant','vikram@company.com','9876500005','2020-02-10','1990-12-09','Hyderabad','Kabir Singh','HDFC Bank','50100987654321','HDFC0004321','EFGVR7890H','UAN1005',38000,15200,0,2500,2000,3500,0]
+  ];
+  const months = ['2026-08-01','2026-09-01','2026-10-01'], out = [];
+  base.forEach((b, i) => months.forEach((m, j) => {
+    const absent = (i + j) % 3 === 0 ? 1 : 0, wd = 26;
+    out.push({
+      'Employee ID':b[0],'Name':b[1],'Department':b[2],'Designation':b[3],'Email':b[4],'Phone':b[5],
+      'Date of Joining':new Date(b[6]).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}),
+      'Date of Birth':new Date(b[7]).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}),
+      'Location':b[8],'Reporting Manager':b[9],
+      'Bank Name':b[10],'Account No':b[11],'IFSC':b[12],'PAN':b[13],'UAN':b[14],
+      'Month':new Date(m).toLocaleDateString('en-GB',{month:'short',year:'numeric'}),
+      'Basic':b[15],'HRA':b[16],'DA':b[17],'Conveyance':b[18],'Medical':b[19],'Special Allowance':b[20],
+      'PF':Math.round(b[15]*0.12),'Professional Tax':200,'TDS':b[15] > 50000 ? 3500 : 0,'Other Deductions':b[21],
+      'Working Days':wd,'Present Days':wd - absent - 1,'Absent Days':absent,'Leaves Taken':1,'Half Days':0,'Late Entries':(i+j)%4,'Leave Balance':12 - j
+    });
+  }));
+  return out;
+}
+$('#btnSample').onclick = () => {
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sampleRows()), 'Employees');
+  XLSX.writeFile(wb, 'employee_sheet_template.xlsx');
+};
+$('#btnDemo').onclick = () => {
+  if (count() && !confirm('Demo data will replace the data currently loaded. Continue?')) return;
+  DB = parseRows(sampleRows()).db; persist(); cur = null; page = 'list'; refreshHeader(); render();
+};
+
+/* ---------- search by ID ---------- */
+function search(){
+  const id = $('#q').value.trim().toUpperCase();
+  $('#suggest').hidden = true;
+  if (!id) return;
+  if (DB[id]) go('emp', DB[id]);
+  else { cur = null; page = 'nf'; render(); $('#view').innerHTML = `<div class="card empty"><div class="big">🔍</div><h2>No employee found</h2><p class="muted">No record with ID "${esc(id)}". Check the ID or browse <a href="#" onclick="go('list');return false">All Employees</a>.</p></div>`; }
+}
+$('#go').onclick = search;
+$('#q').onkeydown = e => { if (e.key === 'Enter') search(); };
+$('#q').oninput = () => {
+  const t = $('#q').value.trim().toUpperCase(), box = $('#suggest');
+  if (t.length < 1){ box.hidden = true; return; }
+  const m = Object.values(DB).filter(e => e.id.includes(t) || (e.info.name || '').toUpperCase().includes(t)).slice(0, 6);
+  box.innerHTML = m.map(e => `<div data-id="${esc(e.id)}"><b>${esc(e.id)}</b><span class="muted">${esc(e.info.name || '')}</span></div>`).join('');
+  box.hidden = !m.length;
+};
+$('#suggest').onclick = e => { const d = e.target.closest('[data-id]'); if (d){ $('#q').value = d.dataset.id; search(); } };
+document.addEventListener('click', e => { if (!e.target.closest('.search')) $('#suggest').hidden = true; });
+
+/* ---------- views ---------- */
+const kv = (l, v) => v ? `<div class="kv"><small>${esc(l)}</small><span>${esc(v)}</span></div>` : '';
+const initials = n => esc(String(n).split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase());
+const pctPill = p => p === null ? '<span class="pill gray">–</span>' : `<span class="pill ${p >= 90 ? 'ok' : p >= 75 ? 'warn' : 'bad'}">${p}%</span>`;
+
+function render(){
+  document.querySelectorAll('.nav[data-p]').forEach(b => b.classList.toggle('on', b.dataset.p === page || (page === 'emp' && b.dataset.p === 'list')));
+  const v = $('#view'), titles = {dash:'Dashboard', list:'All Employees', emp:'Employee Details', nf:'Search', co:'Company Details'};
+  $('#pageTitle').textContent = titles[page] || '';
+  if (page === 'co') return viewCompany(v);
+  if (!count()){
+    v.innerHTML = `<div class="card empty"><div class="big">📁</div><h2>Upload your employee sheet to begin</h2>
+      <p class="muted" style="max-width:520px;margin:0 auto 16px">Upload the Excel / CSV file you already use. You'll get a list of all employees, and typing an Employee ID opens just that person's profile, salary, attendance and payslip.</p>
+      <p><button class="btn primary" onclick="$('#file').click()">Upload sheet</button> <button class="btn" onclick="$('#btnDemo').click()">Try with demo data</button></p>
+      <p class="muted" style="font-size:13px">Required column: <b>Employee ID</b>. Other columns are matched by name (Name, Department, Basic, HRA, PF, Present Days, Month …). Use "Sample Template" in the menu to see the format.</p></div>`;
+    return;
+  }
+  if (page === 'emp' && cur) return viewEmployee(v);
+  if (page === 'list') return viewList(v);
+  if (page === 'nf') return;
+  viewDash(v);
+}
+
+function viewDash(v){
+  const emps = Object.values(DB), latest = emps.map(e => e.records.at(-1));
+  const payroll = latest.reduce((s, r) => s + totals(r).net, 0);
+  const pcts = latest.map(attPct).filter(p => p !== null);
+  const avg = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : null;
+  const depts = {}; emps.forEach(e => { const d = e.info.dept || 'Unassigned'; depts[d] = (depts[d] || 0) + 1; });
+  const dl = Object.entries(depts).sort((a, b) => b[1] - a[1]), max = dl[0]?.[1] || 1;
+  const low = emps.filter(e => { const p = attPct(e.records.at(-1)); return p !== null && p < 80; });
+  v.innerHTML = `<div class="kpis">
+      <div class="kpi"><div class="ico">👥</div><div><small>Total employees</small><b>${emps.length}</b></div></div>
+      <div class="kpi"><div class="ico">🏢</div><div><small>Departments</small><b>${dl.length}</b></div></div>
+      <div class="kpi"><div class="ico">💰</div><div><small>Monthly net payroll</small><b>${moneyS(payroll)}</b></div></div>
+      <div class="kpi"><div class="ico">✅</div><div><small>Avg attendance</small><b>${avg === null ? '–' : avg + '%'}</b></div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+      <div class="card"><h3>Employees by department</h3>${dl.map(([d, c]) => `<div class="dept-row"><span>${esc(d)}</span><div class="bar"><i style="width:${c / max * 100}%"></i></div><b>${c}</b></div>`).join('')}</div>
+      <div class="card"><h3>Needs attention <span class="muted" style="font-weight:400">· attendance below 80%</span></h3>
+        ${low.length ? low.map(e => `<div class="dept-row" style="grid-template-columns:1fr auto;cursor:pointer" onclick="go('emp',DB['${esc(e.id)}'])"><span>${esc(e.info.name || e.id)} <span class="muted">${esc(e.id)}</span></span>${pctPill(attPct(e.records.at(-1)))}</div>`).join('') : '<p class="muted">No one — everyone is at 80% or above 🎉</p>'}
+        <div style="margin-top:14px"><button class="btn" onclick="go('list')">View all employees →</button></div></div>
+    </div>`;
+}
+
+function viewList(v){
+  const depts = [...new Set(Object.values(DB).map(e => e.info.dept).filter(Boolean))].sort();
+  v.innerHTML = `<div class="page-h"><h2>All Employees</h2><span class="muted" id="listCount"></span><span class="sp"></span><button class="btn primary" onclick="$('#navAdd').click()">+ Add employee</button></div>
+    <div class="card">
+      <div class="tools"><input class="field" id="lq" placeholder="Filter by name, ID, designation…" value="${esc(listQ)}">
+        <select id="ld"><option value="">All departments</option>${depts.map(d => `<option ${d === listDept ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Employee</th><th>ID</th><th>Department</th><th>Designation</th><th>Joined</th><th class="n">Net pay</th><th>Attendance</th><th></th></tr></thead><tbody id="rows"></tbody></table></div></div>`;
+  const draw = () => {
+    const q = listQ.toLowerCase();
+    const list = Object.values(DB).filter(e => (!listDept || e.info.dept === listDept) &&
+      (!q || [e.id, e.info.name, e.info.desig, e.info.dept].some(x => String(x || '').toLowerCase().includes(q)))).sort((a, b) => a.id.localeCompare(b.id, undefined, {numeric:true}));
+    $('#listCount').textContent = list.length + ' of ' + count();
+    $('#rows').innerHTML = list.map(e => { const r = e.records.at(-1);
+      return `<tr class="click" data-id="${esc(e.id)}"><td><div class="who-c"><div class="av">${initials(e.info.name || e.id)}</div><b>${esc(e.info.name || '—')}</b></div></td>
+        <td>${esc(e.id)}</td><td>${esc(e.info.dept || '')}</td><td>${esc(e.info.desig || '')}</td><td>${esc(e.info.doj || '')}</td>
+        <td class="n">${moneyS(totals(r).net)}</td><td>${pctPill(attPct(r))}</td><td><button class="btn sm">View</button></td></tr>`; }).join('')
+      || '<tr><td colspan="8" class="muted" style="text-align:center;padding:30px">No employees match.</td></tr>';
+  };
+  draw();
+  $('#lq').oninput = e => { listQ = e.target.value; draw(); };
+  $('#ld').onchange = e => { listDept = e.target.value; draw(); };
+  $('#rows').onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr) go('emp', DB[tr.dataset.id]); };
+}
+
+function viewEmployee(v){
+  const i = cur.info, nm = i.name || cur.id;
+  const tabs = [['profile','Profile'],['salary','Salary'],['attendance','Attendance'],['payslip','Payslip']];
+  v.innerHTML = `<div class="page-h"><button class="btn" onclick="go('list')">← All employees</button></div>
+    <div class="card">
+    <div class="hero"><div class="av">${initials(nm)}</div>
+      <div><h2>${esc(nm)}</h2><div class="chips"><span class="pill gray">${esc(cur.id)}</span>${i.desig ? `<span class="pill gray">${esc(i.desig)}</span>` : ''}${i.dept ? `<span class="pill gray">${esc(i.dept)}</span>` : ''}</div></div></div>
+    <div class="tabs">${tabs.map(([k, l]) => `<button data-t="${k}" class="${tab===k?'on':''}">${l}</button>`).join('')}</div>
+    <div id="pane" style="margin-top:18px"></div></div>`;
+  v.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
+  $('#pane').innerHTML = {profile, salary, attendance, payslip}[tab]();
+  const sel = $('#monthSel'); if (sel) sel.onchange = () => { month = sel.value; render(); };
+}
+const monthSelect = () => cur.records.length > 1
+  ? `<div class="row"><label class="muted">Month</label><select id="monthSel">${cur.records.map(r => `<option ${r.month===month?'selected':''}>${esc(r.month)}</option>`).join('')}</select></div>` : '';
+const rec = () => cur.records.find(r => r.month === month) || cur.records.at(-1);
+const actions = (fn, label) => `<div class="row"><button class="btn" onclick="${fn}()">✏️ ${label}</button><button class="btn" onclick="addMonth()">+ Add month</button><button class="btn danger" onclick="delMonth()">Delete month</button></div>`;
+
+function profile(){
+  const i = cur.info;
+  const extra = Object.entries(cur.extra).map(([k, v]) => kv(k, v)).join('');
+  return `<div class="grid">
+    ${kv('Employee ID', cur.id)}${kv('Name', i.name)}${kv('Department', i.dept)}${kv('Designation', i.desig)}
+    ${kv('Date of joining', i.doj)}${kv('Date of birth', i.dob)}${kv('Location', i.location)}${kv('Reporting manager', i.manager)}
+    ${kv('Email', i.email)}${kv('Phone', i.phone)}${kv('PAN', i.pan)}${kv('PF / UAN', i.pfno)}
+    ${kv('Bank', i.bank)}${kv('Account no.', i.account)}${kv('IFSC', i.ifsc)}${extra}</div>
+    <div class="row" style="margin-top:22px"><button class="btn primary" onclick="editProfile()">✏️ Edit details</button><button class="btn" onclick="addField()">+ Add custom field</button><button class="btn danger" onclick="delEmp()">Delete employee</button></div>`;
+}
+function salary(){
+  const r = rec(); if (!r) return '<p class="muted">No salary data.</p>';
+  const t = totals(r);
+  const rows = (list, o) => list.filter(([k]) => o[k]).map(([k, l]) => `<tr><td>${l}</td><td class="n">${money(o[k])}</td></tr>`).join('');
+  const hist = cur.records.length > 1 ? `<h3 style="margin-top:24px">Salary history</h3><div class="tbl-wrap"><table><thead><tr><th>Month</th><th class="n">Gross</th><th class="n">Deductions</th><th class="n">Net pay</th></tr></thead><tbody>
+    ${cur.records.map(x => { const y = totals(x); return `<tr><td>${esc(x.month)}</td><td class="n">${money(y.gross)}</td><td class="n">${money(y.ded)}</td><td class="n"><b>${money(y.net)}</b></td></tr>`; }).join('')}</tbody></table></div>` : '';
+  return `${monthSelect()}${actions('editSalary', 'Edit salary')}
+    <div class="stats"><div class="stat"><small>Gross</small><b>${money(t.gross)}</b></div><div class="stat"><small>Deductions</small><b>${money(t.ded)}</b></div><div class="stat"><small>Net pay</small><b>${money(t.net)}</b></div><div class="stat"><small>Annual CTC (approx.)</small><b>${money(t.gross*12)}</b></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px">
+    <div><h3>Earnings</h3><table><tbody>${rows(EARN, r.earn) || `<tr><td>Gross</td><td class="n">${money(t.gross)}</td></tr>`}</tbody></table></div>
+    <div><h3>Deductions</h3><table><tbody>${rows(DEDUCT, r.ded) || '<tr><td class="muted">None</td><td></td></tr>'}</tbody></table></div></div>${hist}`;
+}
+function attendance(){
+  const r = rec(); if (!r) return '<p class="muted">No attendance data.</p>';
+  const a = r.att;
+  if (!a.workdays && !a.present && !a.absent && !a.leaves) return `${monthSelect()}${actions('editAttendance', 'Edit attendance')}<p class="muted">No attendance recorded for ${esc(r.month)}. Click "Edit attendance" to add it.</p>`;
+  const pct = attPct(r) ?? 0;
+  const tot = {p:0, w:0, a:0, l:0};
+  cur.records.forEach(x => { tot.p += x.att.present; tot.w += x.att.workdays; tot.a += x.att.absent; tot.l += x.att.leaves; });
+  return `${monthSelect()}${actions('editAttendance', 'Edit attendance')}
+    <div class="stats">
+      <div class="stat"><small>Working days</small><b>${a.workdays}</b></div>
+      <div class="stat"><small>Present</small><b>${a.present}</b></div>
+      <div class="stat"><small>Absent</small><b class="${a.absent?'warn':''}">${a.absent}</b></div>
+      <div class="stat"><small>Leaves taken</small><b>${a.leaves}</b></div>
+      ${a.halfdays ? `<div class="stat"><small>Half days</small><b>${a.halfdays}</b></div>` : ''}
+      ${a.late ? `<div class="stat"><small>Late entries</small><b>${a.late}</b></div>` : ''}
+      ${a.leavebal !== null ? `<div class="stat"><small>Leave balance</small><b>${a.leavebal}</b></div>` : ''}
+    </div>
+    <div class="muted" style="margin-bottom:5px">Attendance ${pct}%</div><div class="bar ok"><i style="width:${pct}%"></i></div>
+    ${cur.records.length > 1 ? `<h3 style="margin-top:24px">Month-wise</h3><div class="tbl-wrap"><table><thead><tr><th>Month</th><th class="n">Working</th><th class="n">Present</th><th class="n">Absent</th><th class="n">Leaves</th><th class="n">%</th></tr></thead><tbody>
+    ${cur.records.map(x => `<tr><td>${esc(x.month)}</td><td class="n">${x.att.workdays}</td><td class="n">${x.att.present}</td><td class="n">${x.att.absent}</td><td class="n">${x.att.leaves}</td><td class="n">${attPct(x) ?? 0}%</td></tr>`).join('')}
+    <tr><td><b>Total</b></td><td class="n">${tot.w}</td><td class="n">${tot.p}</td><td class="n">${tot.a}</td><td class="n">${tot.l}</td><td></td></tr></tbody></table></div>` : ''}`;
+}
+function payslip(){
+  const r = rec(); if (!r) return '<p class="muted">No salary data.</p>';
+  const i = cur.info, t = totals(r), a = r.att;
+  const e = EARN.filter(([k]) => r.earn[k]), d = DEDUCT.filter(([k]) => r.ded[k]);
+  const n = Math.max(e.length, d.length, 1), rows = [];
+  for (let x = 0; x < n; x++) rows.push(`<tr><td>${e[x] ? e[x][1] : '&nbsp;'}</td><td class="n">${e[x] ? money(r.earn[e[x][0]]) : ''}</td><td>${d[x] ? d[x][1] : ''}</td><td class="n">${d[x] ? money(r.ded[d[x][0]]) : ''}</td></tr>`);
+  const info = (l, v) => v ? `<div><span>${esc(l)}</span><b>${esc(v)}</b></div>` : '';
+  const paid = a.workdays ? a.present + a.leaves : 0;
+  const sel = cur.records.length > 1 ? `<label class="muted">Month</label><select id="monthSel">${cur.records.map(x => `<option ${x.month===month?'selected':''}>${esc(x.month)}</option>`).join('')}</select>` : '';
+  return `<div class="row">${sel}
+      <button class="btn primary" onclick="window.print()">🖨 Print / Save as PDF</button>
+      <button class="btn" onclick="editCompany()">Edit company details</button></div>
+    <div id="payslip">
+      ${COMPANY.logo ? `<div style="text-align:center;margin-bottom:6px"><img src="${COMPANY.logo}" style="max-height:60px;max-width:200px"></div>` : ''}
+      <h3>${esc(COMPANY.name)}</h3><div class="sub">${esc(COMPANY.addr)}${[COMPANY.phone, COMPANY.email, COMPANY.website].filter(Boolean).length ? '<br>' + [COMPANY.phone, COMPANY.email, COMPANY.website].filter(Boolean).map(esc).join(' &nbsp;|&nbsp; ') : ''}${COMPANY.regno ? `<br>${esc(COMPANY.regno)}` : ''}</div>
+      <div style="text-align:center;font-weight:700;margin-bottom:12px">PAYSLIP — ${esc(r.month.toUpperCase())}</div>
+      <div class="info">
+        ${info('Employee ID', cur.id)}${info('Name', i.name)}${info('Designation', i.desig)}${info('Department', i.dept)}
+        ${info('Date of joining', i.doj)}${info('Location', i.location)}${info('PAN', i.pan)}${info('PF / UAN', i.pfno)}
+        ${info('Bank', i.bank)}${info('Account no.', i.account)}
+        ${a.workdays ? info('Working days', a.workdays) + info('Days paid', paid || a.present) + info('Days absent (LOP)', a.absent) : ''}
+      </div>
+      <table><thead><tr><th>Earnings</th><th class="n">Amount</th><th>Deductions</th><th class="n">Amount</th></tr></thead><tbody>
+        ${rows.join('')}
+        <tr class="tot"><td>Gross earnings</td><td class="n">${money(t.gross)}</td><td>Total deductions</td><td class="n">${money(t.ded)}</td></tr></tbody></table>
+      <div class="net"><span>Net pay</span><span>${money(t.net)}</span></div>
+      <div style="margin-top:6px"><i>Rupees ${esc(words(t.net))} only</i></div>
+      <div class="sig"><span>Employee signature</span><span style="text-align:right">${COMPANY.signatory ? `<b>${esc(COMPANY.signatory)}</b><br>` : ''}${esc(COMPANY.signDesig || 'Authorised signatory')}</span></div>
+      ${COMPANY.footer ? `<div style="text-align:center;color:#777;font-size:12px;margin-top:18px">${esc(COMPANY.footer)}</div>` : ''}
+    </div>`;
+}
+
+/* ---------- editing ---------- */
+const PROFILE_FIELDS = [['name','Name'],['dept','Department'],['desig','Designation'],['email','Email'],['phone','Phone'],['doj','Date of joining'],['dob','Date of birth'],['location','Location'],['manager','Reporting manager'],['bank','Bank name'],['account','Account no.'],['ifsc','IFSC'],['pan','PAN'],['pfno','PF / UAN']].map(([key, label]) => ({key, label}));
+const NUM_FIELDS = list => list.map(([key, label]) => ({key, label: label + ' (₹)', type: 'number'}));
+
+function openForm(title, fields, vals, onSave){
+  const m = document.createElement('div'); m.className = 'modal';
+  m.innerHTML = `<form class="mbox"><h3>${esc(title)}</h3><div class="mgrid">${fields.map(f =>
+    `<label>${esc(f.label)}<input name="${esc(f.key)}" type="${f.type || 'text'}" step="any" ${f.type === 'number' ? 'min="0"' : ''} value="${esc(vals[f.key] ?? '')}" ${f.ro ? 'readonly' : ''} ${f.req ? 'required' : ''}></label>`).join('')}</div>
+    <div class="row" style="justify-content:flex-end;margin:18px 0 0"><button type="button" class="btn cancel">Cancel</button><button class="btn primary">Save</button></div></form>`;
+  document.body.appendChild(m);
+  const close = () => { m.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  m.querySelector('.cancel').onclick = close;
+  m.querySelector('form').onsubmit = e => {
+    e.preventDefault();
+    const fd = new FormData(e.target), o = {};
+    fields.forEach(f => o[f.key] = String(fd.get(f.key) ?? '').trim());
+    if (onSave(o) !== false) close();
+  };
+  m.querySelector('input:not([readonly])')?.focus();
+}
+const saved = () => { persist(); refreshHeader(); render(); };
+
+function editProfile(){
+  const xf = Object.keys(cur.extra).map(k => ({key: 'x:' + k, label: k}));
+  const vals = {...cur.info}; Object.entries(cur.extra).forEach(([k, v]) => vals['x:' + k] = v);
+  openForm('Edit details — ' + cur.id, [{key:'id', label:'Employee ID', ro:true}, ...PROFILE_FIELDS, ...xf], {...vals, id: cur.id}, o => {
+    for (const [k, v] of Object.entries(o)){
+      if (k === 'id') continue;
+      const bag = k.startsWith('x:') ? cur.extra : cur.info, key = k.replace(/^x:/, '');
+      if (v) bag[key] = v; else delete bag[key];
+    }
+    saved();
+  });
+}
+function addField(){
+  const name = prompt('Field name (e.g. Blood Group, Emergency Contact):'); if (!name || !name.trim()) return;
+  const val = prompt('Value for ' + name.trim() + ':'); if (val === null) return;
+  cur.extra[name.trim()] = val.trim(); saved();
+}
+function delEmp(){
+  if (!confirm('Delete ' + (cur.info.name || cur.id) + ' and all their records? This cannot be undone.')) return;
+  delete DB[cur.id]; cur = null; $('#q').value = ''; page = 'list'; saved();
+}
+function editSalary(){
+  const r = rec();
+  openForm('Salary — ' + r.month, [...NUM_FIELDS(EARN.map(([k, l]) => [k, l])), ...NUM_FIELDS(DEDUCT.map(([k, l]) => ['d_' + k, l]))],
+    {...r.earn, ...Object.fromEntries(Object.entries(r.ded).map(([k, v]) => ['d_' + k, v]))}, o => {
+      EARN.forEach(([k]) => r.earn[k] = num(o[k]));
+      DEDUCT.forEach(([k]) => r.ded[k] = num(o['d_' + k]));
+      r.grossIn = 0; r.netIn = 0;
+      saved();
+    });
+}
+function editAttendance(){
+  const r = rec(), a = r.att;
+  openForm('Attendance — ' + r.month, [
+    {key:'workdays', label:'Working days', type:'number'}, {key:'present', label:'Present days', type:'number'},
+    {key:'absent', label:'Absent days', type:'number'}, {key:'leaves', label:'Leaves taken', type:'number'},
+    {key:'halfdays', label:'Half days', type:'number'}, {key:'late', label:'Late entries', type:'number'},
+    {key:'leavebal', label:'Leave balance', type:'number'}], a, o => {
+      if (num(o.present) > num(o.workdays) && num(o.workdays)){ alert('Present days cannot be more than working days.'); return false; }
+      ['workdays','present','absent','leaves','halfdays','late'].forEach(k => a[k] = num(o[k]));
+      a.leavebal = o.leavebal === '' ? null : num(o.leavebal);
+      saved();
+    });
+}
+function addMonth(){
+  const last = cur.records.at(-1), t = monthKey(last.month);
+  let def = ''; if (t){ const d = new Date(t); d.setMonth(d.getMonth() + 1); def = monthLabel(d); }
+  const label = (prompt('New month (e.g. Nov 2026). Salary is copied from the last month; attendance starts empty.', def) || '').trim();
+  if (!label) return;
+  if (cur.records.some(r => r.month === label)){ alert('That month already exists.'); return; }
+  cur.records.push({month: label, earn: {...last.earn}, ded: {...last.ded}, grossIn: last.grossIn, netIn: last.netIn,
+    att: {workdays:0, present:0, absent:0, leaves:0, halfdays:0, late:0, leavebal: last.att.leavebal}});
+  sortRecs(cur); month = label; saved();
+}
+function delMonth(){
+  if (cur.records.length < 2){ alert('An employee needs at least one month record.'); return; }
+  if (!confirm('Delete the ' + month + ' record (salary and attendance)?')) return;
+  cur.records = cur.records.filter(r => r.month !== month); month = cur.records.at(-1).month; saved();
+}
+$('#navAdd').onclick = () => {
+  const fields = [{key:'id', label:'Employee ID *', req:true}, ...PROFILE_FIELDS, {key:'basic', label:'Basic salary (₹)', type:'number'}];
+  openForm('Add employee', fields, {}, o => {
+    const id = o.id.toUpperCase();
+    if (DB[id]){ alert(id + ' already exists.'); return false; }
+    const info = {}; PROFILE_FIELDS.forEach(f => { if (o[f.key]) info[f.key] = o[f.key]; });
+    DB[id] = {id, info, extra: {}, records: [{month: monthLabel(new Date()), earn: o.basic ? {basic: num(o.basic)} : {}, ded: {}, grossIn: 0, netIn: 0,
+      att: {workdays:0, present:0, absent:0, leaves:0, halfdays:0, late:0, leavebal:null}}]};
+    cur = DB[id]; tab = 'profile'; page = 'emp'; month = cur.records[0].month; $('#q').value = id; saved();
+  });
+};
+window.editCompany = () => go('co');
+
+function viewCompany(v){
+  let logo = COMPANY.logo;
+  const inp = (id, label, val, ph = '') => `<label>${label}<input id="${id}" value="${esc(val)}" placeholder="${esc(ph)}"></label>`;
+  v.innerHTML = `<div class="card"><p class="muted" style="margin-top:0">These details appear at the top and bottom of every payslip.</p>
+    <div class="mgrid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+      ${inp('c_name', 'Company name *', COMPANY.name)}
+      ${inp('c_addr', 'Address', COMPANY.addr)}
+      ${inp('c_phone', 'Phone', COMPANY.phone)}
+      ${inp('c_email', 'Email', COMPANY.email)}
+      ${inp('c_web', 'Website', COMPANY.website)}
+      ${inp('c_reg', 'Registration / GSTIN / CIN', COMPANY.regno)}
+      ${inp('c_sign', 'Signatory name', COMPANY.signatory, 'e.g. Meera Nair')}
+      ${inp('c_signd', 'Signatory title', COMPANY.signDesig)}
+      ${inp('c_foot', 'Payslip footer note', COMPANY.footer)}
+    </div>
+    <div class="row" style="margin-top:18px"><div id="logoBox"></div>
+      <button class="btn" id="logoPick">Upload logo</button><button class="btn danger" id="logoDel">Remove logo</button>
+      <input type="file" id="logoFile" accept="image/*" hidden><span class="muted">PNG / JPG, shown on the payslip header</span></div>
+    <div class="row" style="margin:22px 0 0"><button class="btn primary" id="coSave">Save company details</button><span id="coMsg" class="pill ok" hidden>Saved ✓</span></div></div>`;
+  const drawLogo = () => { $('#logoBox').innerHTML = logo ? `<img src="${logo}" style="max-height:56px;max-width:160px;border:1px solid var(--line);border-radius:8px;padding:4px">` : '<span class="pill gray">No logo</span>'; };
+  drawLogo();
+  $('#logoPick').onclick = () => $('#logoFile').click();
+  $('#logoDel').onclick = () => { logo = ''; drawLogo(); };
+  $('#logoFile').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const img = new Image(), url = URL.createObjectURL(f);
+    img.onload = () => {
+      const s = Math.min(1, 300 / img.width), c = document.createElement('canvas');
+      c.width = img.width * s; c.height = img.height * s; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      logo = c.toDataURL('image/png'); URL.revokeObjectURL(url); drawLogo();
+    };
+    img.onerror = () => alert('Could not read that image.');
+    img.src = url;
+  };
+  $('#coSave').onclick = () => {
+    const g = id => $(id).value.trim();
+    if (!g('#c_name')){ alert('Company name is required.'); return; }
+    COMPANY = {name: g('#c_name'), addr: g('#c_addr'), phone: g('#c_phone'), email: g('#c_email'), website: g('#c_web'), regno: g('#c_reg'),
+      signatory: g('#c_sign'), signDesig: g('#c_signd'), footer: g('#c_foot'), logo};
+    store.set('hr_company', COMPANY); refreshHeader();
+    $('#coMsg').hidden = false; setTimeout(() => { const m = $('#coMsg'); if (m) m.hidden = true; }, 2000);
+  };
+}
+
+/* ---------- export ---------- */
+const INFO_HEADERS = {id:'Employee ID', name:'Name', dept:'Department', desig:'Designation', email:'Email', phone:'Phone', doj:'Date of Joining', dob:'Date of Birth',
+  location:'Location', manager:'Reporting Manager', bank:'Bank Name', account:'Account No', ifsc:'IFSC', pan:'PAN', pfno:'PF No'};
+$('#btnExport').onclick = () => {
+  const emps = Object.values(DB); if (!emps.length){ alert('Nothing to export yet.'); return; }
+  const rows = [];
+  for (const e of emps) for (const r of e.records){
+    const row = {};
+    for (const [k, h] of Object.entries(INFO_HEADERS)) row[h] = k === 'id' ? e.id : (e.info[k] ?? '');
+    Object.assign(row, e.extra);
+    row['Month'] = r.month;
+    EARN.forEach(([k, l]) => row[l] = r.earn[k] ?? 0);
+    DEDUCT.forEach(([k, l]) => row[l] = r.ded[k] ?? 0);
+    const a = r.att;
+    Object.assign(row, {'Working Days':a.workdays, 'Present Days':a.present, 'Absent Days':a.absent, 'Leaves Taken':a.leaves, 'Half Days':a.halfdays, 'Late Entries':a.late, 'Leave Balance':a.leavebal ?? ''});
+    rows.push(row);
+  }
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Employees');
+  XLSX.writeFile(wb, 'employee_data_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+};
+
+refreshHeader(); render();
+</script>
+</body>
+</html>
