@@ -172,7 +172,7 @@ export function payslipDocument(slips: PayslipData[], c: PayslipCompany): TDocum
 }
 
 /** Browser only. Loads pdfmake on demand so it is not part of every page's bundle. */
-async function pdfMake() {
+export async function pdfMake() {
   const [{ default: pm }, { default: vfs }] = await Promise.all([
     import('pdfmake/build/pdfmake'),
     import('pdfmake/build/vfs_fonts'),

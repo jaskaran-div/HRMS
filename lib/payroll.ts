@@ -32,6 +32,12 @@ export interface PayInput {
   tds: number;
   att: AttendanceCounts;
   daysInMonth: number;
+  carry?: Carry; // brought forward from the previous month
+}
+
+export interface Carry {
+  arrears: number;
+  deduction: number;
 }
 
 export interface PayResult {
@@ -72,16 +78,20 @@ export function computePay(i: PayInput, r: PayRules): PayResult {
     { label: 'Conveyance Allowance', amount: conv },
     { label: 'Special Allowance', amount: special },
   ];
+  const cArrears = i.carry?.arrears ?? 0;
+  const cDeduction = i.carry?.deduction ?? 0;
   if (i.arrears > 0) earnings.push({ label: 'Arrears', amount: i.arrears });
+  if (cArrears > 0) earnings.push({ label: 'Arrears (brought forward)', amount: cArrears });
 
   const deductions: PayLine[] = [
     { label: 'Income Tax', amount: i.tds },
     { label: 'Provident Fund', amount: i.pf },
   ];
   if (i.otherDeduction > 0) deductions.push({ label: 'Other Deductions', amount: i.otherDeduction });
+  if (cDeduction > 0) deductions.push({ label: 'Deductions (brought forward)', amount: cDeduction });
 
-  const gross = earned + (i.arrears > 0 ? i.arrears : 0);
-  const totalDeductions = i.tds + i.pf + (i.otherDeduction > 0 ? i.otherDeduction : 0);
+  const gross = earned + (i.arrears > 0 ? i.arrears : 0) + cArrears;
+  const totalDeductions = i.tds + i.pf + (i.otherDeduction > 0 ? i.otherDeduction : 0) + cDeduction;
   return { paidDays, lopDays, leaveConverted, earnings, deductions, gross, totalDeductions, net: gross - totalDeductions };
 }
 
@@ -94,7 +104,7 @@ export const countsFrom = (a: Attendance): AttendanceCounts => ({
   holiday: Number(a.holiday_days),
 });
 
-export function payFor(emp: Employee, a: Attendance, rules: PayRules): PayResult {
+export function payFor(emp: Employee, a: Attendance, rules: PayRules, carry?: Carry): PayResult {
   const [y, m] = a.month.split('-').map(Number);
   return computePay({
     salary: Number(a.salary) || Number(emp.monthly_salary) || 0,
@@ -104,12 +114,35 @@ export function payFor(emp: Employee, a: Attendance, rules: PayRules): PayResult
     tds: Number(emp.tds_amount),
     att: countsFrom(a),
     daysInMonth: daysInMonth(y, m),
+    carry,
   }, rules);
 }
 
-export function buildPayslip(emp: Employee, a: Attendance, rules: PayRules, payDate: string): PayslipData {
+/**
+ * What the previous month leaves for this month (one month back, not chained):
+ *  - arrears / deductions entered last month whose payslip was never generated are still owed, so they move on;
+ *  - if last month's deductions exceeded its earnings, the shortfall is recovered this month.
+ * `prevSlipSaved` = a payslip for last month exists (or was already purged, which means it was paid).
+ */
+export function carryFrom(
+  emp: Employee, prev: Attendance | undefined, prevSlipSaved: boolean, rules: PayRules,
+): Carry {
+  const none = { arrears: 0, deduction: 0 };
+  if (!prev) return none;
+  const p = payFor(emp, prev, rules);
+  let arrears = 0;
+  let deduction = 0;
+  if (!prevSlipSaved) {
+    arrears = Math.max(0, Number(prev.arrears));
+    deduction = Math.max(0, Number(prev.other_deduction));
+  }
+  if (p.net < 0) deduction += -p.net;
+  return { arrears, deduction };
+}
+
+export function buildPayslip(emp: Employee, a: Attendance, rules: PayRules, payDate: string, carry?: Carry): PayslipData {
   const [y, m] = a.month.split('-').map(Number);
-  const p = payFor(emp, a, rules);
+  const p = payFor(emp, a, rules, carry);
   return {
     employee: { code: emp.emp_code, name: emp.name },
     month: a.month,

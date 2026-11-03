@@ -10,6 +10,7 @@ import { useLoad } from '@/lib/use-load';
 import { readSheet, downloadXlsx } from '@/lib/sheet';
 import { parseAttendance, type ParsedAttendance, type ParsedAttendanceRow } from '@/lib/parse-attendance';
 import { computePay, payFor, rulesFrom } from '@/lib/payroll';
+import { loadCarry } from '@/lib/carry';
 import { currentYM, daysInMonth, monthLabel, monthStart, shiftMonth } from '@/lib/dates';
 import { inrWhole, norm } from '@/lib/format';
 import type { Attendance, Employee } from '@/lib/types';
@@ -44,7 +45,8 @@ export default function AttendancePage() {
       fetchAll<Employee>((a, b) => sb.from('employees').select('*').is('archived_at', null).order('emp_code').range(a, b)),
       fetchAll<Attendance>((a, b) => sb.from('attendance').select('*').eq('month', month).range(a, b)),
     ]);
-    return { month, emps, att };
+    const carry = await loadCarry(sb, month, emps, rules);
+    return { month, emps, att, carry };
   }, [month]);
   const emps = data?.emps ?? [];
   const attByEmp = useMemo(() => new Map((data?.att ?? []).map(a => [a.employee_id, a])), [data]);
@@ -131,7 +133,7 @@ export default function AttendancePage() {
       {error && <p className="err">{error}</p>}
 
       {mode === 'enter' && (data && data.month === month
-        ? <AttendanceGrid month={month} emps={data.emps} att={data.att} readOnly={!canEdit} onSaved={reload} />
+        ? <AttendanceGrid month={month} emps={data.emps} att={data.att} carry={data.carry} readOnly={!canEdit} onSaved={reload} />
         : <p className="muted">Loading…</p>)}
 
       {mode === 'upload' && canEdit && (

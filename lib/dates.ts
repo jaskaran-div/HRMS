@@ -10,6 +10,13 @@ export function monthFromName(s: string): number | null {
 
 export const daysInMonth = (year: number, month: number) => new Date(year, month, 0).getDate();
 
+/** True for the 2nd and 4th Saturday of the month (the company's fixed week off). month is 1-12. */
+export function isOffSaturday(year: number, month: number, day: number): boolean {
+  if (new Date(year, month - 1, day).getDay() !== 6) return false;
+  const nth = Math.ceil(day / 7);
+  return nth === 2 || nth === 4;
+}
+
 /** "2026-07" -> "2026-07-01" */
 export const monthStart = (ym: string) => `${ym.slice(0, 7)}-01`;
 

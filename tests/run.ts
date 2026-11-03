@@ -3,7 +3,7 @@ import { parseAttendance } from '../lib/parse-attendance';
 import { parseEmployees } from '../lib/parse-employees';
 import { computePay, type PayRules } from '../lib/payroll';
 import { amountInWords } from '../lib/format';
-import { daysInMonth, toISODate, toMonthStart } from '../lib/dates';
+import { daysInMonth, isOffSaturday, toISODate, toMonthStart } from '../lib/dates';
 import * as XLSX from 'xlsx';
 import { rowsFromWorkbook, type SheetRow } from '../lib/sheet';
 
@@ -173,6 +173,22 @@ test('employee .xlsx with real date cells', () => {
   const e = parseEmployees(rowsFromWorkbook(XLSX.read(bytes, { type: 'buffer', cellDates: true }))).employees[0];
   assert.equal(e.fields.doj, '2025-06-02');
   assert.equal(e.fields.monthly_salary, 20333);
+});
+
+test('2nd and 4th Saturday are week offs', () => {
+  // Feb 2026 Saturdays: 7, 14, 21, 28 -> 14 and 28 are off
+  const off = Array.from({ length: 28 }, (_, i) => i + 1).filter(d => isOffSaturday(2026, 2, d));
+  assert.deepEqual(off, [14, 28]);
+  // Nov 2026 Saturdays: 7, 14, 21, 28
+  assert.deepEqual(Array.from({ length: 30 }, (_, i) => i + 1).filter(d => isOffSaturday(2026, 11, d)), [14, 28]);
+});
+
+test('brought-forward arrears and deductions flow into the pay', () => {
+  const base = { salary: 30000, arrears: 0, otherDeduction: 0, pf: 0, tds: 0, att: { present: 30, half: 0, absent: 0, leave: 0, weekoff: 0, holiday: 0 }, daysInMonth: 30 };
+  const p = computePay({ ...base, carry: { arrears: 1000, deduction: 400 } }, rules(0));
+  assert.equal(p.gross, 31000);
+  assert.equal(p.totalDeductions, 400);
+  assert.equal(p.net, 30600);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

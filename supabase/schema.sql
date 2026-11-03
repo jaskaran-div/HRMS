@@ -155,6 +155,30 @@ revoke all on function public.purge_old_payslips(int) from public;
 grant execute on function public.purge_old_payslips(int) to authenticated, service_role;
 
 ------------------------------------------------------------------------------
+-- Exit records: when an employee is made inactive, their relieving letter and last
+-- 3 or 6 months of payslips are stored here (kept; NOT removed by purge_old_payslips)
+------------------------------------------------------------------------------
+create table if not exists public.exit_records (
+  employee_id uuid primary key references public.employees (id) on delete cascade,
+  relieved_on date not null,
+  payslip_months int not null check (payslip_months in (3, 6)),
+  letter jsonb not null,
+  payslips jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  created_by uuid default auth.uid()
+);
+alter table public.exit_records enable row level security;
+drop policy if exists exit_read on public.exit_records;
+create policy exit_read on public.exit_records for select to authenticated using (public.can_read());
+drop policy if exists exit_insert on public.exit_records;
+create policy exit_insert on public.exit_records for insert to authenticated with check (public.can_edit());
+drop policy if exists exit_update on public.exit_records;
+create policy exit_update on public.exit_records for update to authenticated
+  using (public.can_edit()) with check (public.can_edit());
+drop policy if exists exit_delete on public.exit_records;
+create policy exit_delete on public.exit_records for delete to authenticated using (public.can_edit());
+
+------------------------------------------------------------------------------
 -- Audit trail: who changed what (protects against "I didn't know I did that")
 ------------------------------------------------------------------------------
 create table if not exists public.audit_log (

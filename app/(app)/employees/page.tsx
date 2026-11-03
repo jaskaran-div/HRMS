@@ -37,7 +37,7 @@ export default function EmployeesPage() {
   return (
     <>
       <div className="page-h">
-        <h2>{archived ? 'Archived employees' : 'All employees'}</h2>
+        <h2>{archived ? 'Inactive employees' : 'Active employees'}</h2>
         <span className="muted">{loading ? 'Loading…' : `${list.length} shown`}</span>
         <span className="sp" />
         {canEdit && <button className="btn primary" onClick={() => setAdding(true)}>+ Add employee</button>}
@@ -52,7 +52,7 @@ export default function EmployeesPage() {
             {depts.map(d => <option key={d}>{d}</option>)}
           </select>
           <label className="small muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} /> Show archived
+            <input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} /> Show inactive
           </label>
         </div>
         <div className="tbl-wrap">

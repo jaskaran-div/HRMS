@@ -1,21 +1,22 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useApp } from '@/components/AppContext';
 import { FormModal } from '@/components/Modal';
 import { AttendanceModal } from '@/components/AttendanceModal';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { useLoad } from '@/lib/use-load';
-import { fmtDate, monthLabel } from '@/lib/dates';
+import { fmtDate, monthLabel, shiftMonth } from '@/lib/dates';
 import { initials, inr } from '@/lib/format';
-import { payFor, rulesFrom } from '@/lib/payroll';
+import { carryFrom, payFor, rulesFrom } from '@/lib/payroll';
+import { downloadRelieving, openRelieving } from '@/lib/relieving-pdf';
 import { EMPLOYEE_FIELDS, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
 import { downloadPayslips, openPayslips, printPayslips, payslipFilename } from '@/lib/payslip-pdf';
 import { buildPayslip } from '@/lib/payroll';
 import { todayISO } from '@/lib/dates';
-import type { Attendance, Employee, PayslipRow } from '@/lib/types';
+import type { Attendance, Employee, ExitRecord, PayslipRow, RelievingLetterData } from '@/lib/types';
 
 type Tab = 'profile' | 'pay' | 'payslips';
 
@@ -25,23 +26,30 @@ const kv = (label: string, value: string | null | undefined) =>
 export default function EmployeePage() {
   const { id } = useParams<{ id: string }>();
   const code = decodeURIComponent(id).toUpperCase();
-  const router = useRouter();
   const { canEdit, isAdmin, settings, notify } = useApp();
   const [tab, setTab] = useState<Tab>('profile');
   const [editing, setEditing] = useState(false);
   const [attModal, setAttModal] = useState<{ month: string | null; existing?: Attendance } | null>(null);
+  const [exitOpen, setExitOpen] = useState(false);
+  const [relievedOn, setRelievedOn] = useState(todayISO());
+  const [exitMonths, setExitMonths] = useState<3 | 6>(3);
+  const [busyExit, setBusyExit] = useState(false);
 
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
     const { data: emp, error } = await sb.from('employees').select('*').eq('emp_code', code).maybeSingle();
     if (error) throw new Error(error.message);
     if (!emp) return null;
-    const [att, slips] = await Promise.all([
+    const [att, slips, exit] = await Promise.all([
       sb.from('attendance').select('*').eq('employee_id', emp.id).order('month', { ascending: false }),
       sb.from('payslips').select('*').eq('employee_id', emp.id).order('month', { ascending: false }),
+      sb.from('exit_records').select('*').eq('employee_id', emp.id).maybeSingle(),
     ]);
     if (att.error) throw new Error(att.error.message);
-    return { emp: emp as Employee, att: (att.data ?? []) as Attendance[], slips: (slips.data ?? []) as PayslipRow[] };
+    return {
+      emp: emp as Employee, att: (att.data ?? []) as Attendance[], slips: (slips.data ?? []) as PayslipRow[],
+      exit: (exit.data ?? null) as ExitRecord | null,
+    };
   }, [code]);
 
   if (loading && !data) return <p className="muted">Loading…</p>;
@@ -52,16 +60,50 @@ export default function EmployeePage() {
         <p className="muted">Check the ID, or browse <Link href="/employees">all employees</Link>.</p></div>
     );
   }
-  const { emp, att, slips } = data;
+  const { emp, att, slips, exit } = data;
   const rules = rulesFrom(settings);
   const company = { name: settings.company_name, address: settings.company_address, logo: settings.logo, footer: settings.footer_note };
 
-  async function setArchived(on: boolean) {
-    if (on && !confirm(`Archive ${emp.name}? They disappear from the lists and payroll, but nothing is deleted and you can restore them.`)) return;
-    const { error } = await supabaseBrowser().from('employees').update({ archived_at: on ? new Date().toISOString() : null }).eq('id', emp.id);
+  /** Carry-forward into attendance row `a`; `prevIsBatch` = the previous month is being generated in the same batch (so it is paid). */
+  const carryInto = (a: Attendance, prevIsBatch: boolean) => {
+    const prevMonth = shiftMonth(a.month, -1);
+    const oldest = slips.reduce<string | null>((o, s) => (o === null || s.month < o ? s.month : o), null);
+    const saved = prevIsBatch || slips.some(s => s.month === prevMonth) || (oldest !== null && prevMonth < oldest);
+    return carryFrom(emp, att.find(x => x.month === prevMonth), saved, rules);
+  };
+
+  async function makeInactive() {
+    if (!relievedOn) return;
+    if (!confirm(`Mark ${emp.name} inactive from ${fmtDate(relievedOn)}? They leave the lists and payroll; the relieving letter and last ${exitMonths} months of payslips are generated and kept.`)) return;
+    setBusyExit(true);
+    const relMonth = `${relievedOn.slice(0, 7)}-01`;
+    const from = shiftMonth(relMonth, -(exitMonths - 1));
+    const months = att.filter(a => a.month >= from && a.month <= relMonth).sort((a, b) => (a.month < b.month ? -1 : 1));
+    const payslips = months.map((a, i) => buildPayslip(emp, a, rules, todayISO(), carryInto(a, i > 0)));
+    const letter: RelievingLetterData = {
+      employee: { code: emp.emp_code, name: emp.name, designation: emp.designation, department: emp.department },
+      doj: emp.doj, relievedOn, issueDate: todayISO(),
+    };
+    const sb = supabaseBrowser();
+    const rec = await sb.from('exit_records').upsert(
+      { employee_id: emp.id, relieved_on: relievedOn, payslip_months: exitMonths, letter, payslips }, { onConflict: 'employee_id' });
+    if (rec.error) { notify(rec.error.message, 'err'); setBusyExit(false); return; }
+    const { error } = await sb.from('employees').update({ archived_at: new Date().toISOString() }).eq('id', emp.id);
+    setBusyExit(false);
     if (error) { notify(error.message, 'err'); return; }
-    notify(on ? 'Employee archived' : 'Employee restored');
-    if (on) router.push('/employees'); else reload();
+    notify(`${emp.name} is now inactive · relieving letter + ${payslips.length} payslip${payslips.length === 1 ? '' : 's'} saved`);
+    setExitOpen(false);
+    reload();
+  }
+
+  async function makeActive() {
+    if (!confirm(`Mark ${emp.name} active again? The saved relieving letter and exit payslips will be removed.`)) return;
+    const sb = supabaseBrowser();
+    const { error } = await sb.from('employees').update({ archived_at: null }).eq('id', emp.id);
+    if (error) { notify(error.message, 'err'); return; }
+    await sb.from('exit_records').delete().eq('employee_id', emp.id);
+    notify('Employee is active again');
+    reload();
   }
 
   async function deleteMonth(a: Attendance) {
@@ -82,7 +124,7 @@ export default function EmployeePage() {
               <span className="pill gray">{emp.emp_code}</span>
               {emp.designation && <span className="pill gray">{emp.designation}</span>}
               {emp.department && <span className="pill gray">{emp.department}</span>}
-              {emp.archived_at && <span className="pill bad">Archived</span>}
+              <span className={`pill ${emp.archived_at ? 'bad' : 'ok'}`}>{emp.archived_at ? 'Inactive' : 'Active'}</span>
             </div>
           </div>
         </div>
@@ -111,8 +153,37 @@ export default function EmployeePage() {
                 <div className="row" style={{ marginTop: 22 }}>
                   <button className="btn primary" onClick={() => setEditing(true)}>✏️ Edit details</button>
                   {emp.archived_at
-                    ? <button className="btn" onClick={() => setArchived(false)}>Restore employee</button>
-                    : <button className="btn danger" onClick={() => setArchived(true)}>Archive employee</button>}
+                    ? <button className="btn" onClick={makeActive}>Mark active</button>
+                    : <button className="btn danger" onClick={() => setExitOpen(o => !o)}>Mark inactive…</button>}
+                </div>
+              )}
+              {canEdit && !emp.archived_at && exitOpen && (
+                <div className="note" style={{ marginTop: 14 }}>
+                  <div className="row">
+                    <label className="small">Last working day <input type="date" value={relievedOn} onChange={e => setRelievedOn(e.target.value)} /></label>
+                    <label className="small">Save payslips of the last{' '}
+                      <select value={exitMonths} onChange={e => setExitMonths(+e.target.value as 3 | 6)}><option value={3}>3 months</option><option value={6}>6 months</option></select>
+                    </label>
+                    <button className="btn danger" disabled={busyExit || !relievedOn} onClick={makeInactive}>{busyExit ? 'Saving…' : 'Make inactive & generate documents'}</button>
+                  </div>
+                  <p className="muted small" style={{ margin: 0 }}>Generates the relieving letter and the payslips (from saved attendance) and keeps them on this page. Payroll skips inactive employees.</p>
+                </div>
+              )}
+              {emp.archived_at && (
+                <div className="card" style={{ marginTop: 18 }}>
+                  <h3 style={{ marginTop: 0 }}>Exit documents</h3>
+                  {exit ? (
+                    <>
+                      <p className="muted small" style={{ marginTop: 0 }}>Relieved on {fmtDate(exit.relieved_on)} · {exit.payslips.length} payslip(s) from the last {exit.payslip_months} months.</p>
+                      <div className="row">
+                        <button className="btn" onClick={() => openRelieving(exit.letter, company)}>View relieving letter</button>
+                        <button className="btn primary" onClick={() => downloadRelieving(exit.letter, company)}>Download relieving letter</button>
+                        {exit.payslips.length > 0 && (
+                          <button className="btn primary" onClick={() => downloadPayslips(exit.payslips, company, `Payslips_${exit.letter.employee.code}_last_${exit.payslip_months}_months.pdf`)}>Download payslips (PDF)</button>
+                        )}
+                      </div>
+                    </>
+                  ) : <p className="muted small" style={{ margin: 0 }}>No exit documents were saved for this employee.</p>}
                 </div>
               )}
             </>
@@ -127,7 +198,8 @@ export default function EmployeePage() {
                     <th className="n">Paid days</th><th className="n">LOP</th><th className="n">Gross</th><th className="n">Net pay</th><th /></tr></thead>
                   <tbody>
                     {att.map(a => {
-                      const p = payFor(emp, a, rules);
+                      const cf = carryInto(a, false);
+                      const p = payFor(emp, a, rules, cf);
                       return (
                         <tr key={a.id}>
                           <td><b>{monthLabel(a.month)}</b></td>
@@ -136,7 +208,7 @@ export default function EmployeePage() {
                           <td className="n">{p.paidDays}</td><td className="n">{p.lopDays}</td>
                           <td className="n">{inr(p.gross)}</td><td className="n"><b>{inr(p.net)}</b></td>
                           <td style={{ textAlign: 'right' }}>
-                            {(() => { const d = buildPayslip(emp, a, rules, todayISO()); return (<><button className="btn sm" onClick={() => openPayslips([d], company)}>Payslip</button>{' '}<button className="btn sm" onClick={() => printPayslips([d], company)}>Print</button>{' '}<button className="btn sm" onClick={() => downloadPayslips([d], company, payslipFilename(d))}>PDF</button>{' '}</>); })()}
+                            {(() => { const d = buildPayslip(emp, a, rules, todayISO(), cf); return (<><button className="btn sm" onClick={() => openPayslips([d], company)}>Payslip</button>{' '}<button className="btn sm" onClick={() => printPayslips([d], company)}>Print</button>{' '}<button className="btn sm" onClick={() => downloadPayslips([d], company, payslipFilename(d))}>PDF</button>{' '}</>); })()}
                             {canEdit && <button className="btn sm" onClick={() => setAttModal({ month: a.month, existing: a })}>Edit</button>}{' '}
                             {isAdmin && <button className="btn sm danger" onClick={() => deleteMonth(a)}>Delete</button>}
                           </td>

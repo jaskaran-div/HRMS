@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from './AppContext';
 import { supabaseBrowser } from '@/lib/supabase/client';
-import { computePay, rulesFrom, type AttendanceCounts } from '@/lib/payroll';
-import { daysInMonth, monthLabel } from '@/lib/dates';
+import { computePay, rulesFrom, type AttendanceCounts, type Carry } from '@/lib/payroll';
+import { daysInMonth, isOffSaturday, monthLabel } from '@/lib/dates';
 import { inrWhole, num } from '@/lib/format';
 import type { Attendance, Employee } from '@/lib/types';
 
@@ -30,8 +30,8 @@ const countsOf = (days: Days): AttendanceCounts => {
 };
 
 /** Day-by-day attendance for one month. `month` is YYYY-MM-01. */
-export function AttendanceGrid({ month, emps, att, readOnly, onSaved }: {
-  month: string; emps: Employee[]; att: Attendance[]; readOnly: boolean; onSaved: () => void;
+export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
+  month: string; emps: Employee[]; att: Attendance[]; carry: Map<string, Carry>; readOnly: boolean; onSaved: () => void;
 }) {
   const { settings, notify } = useApp();
   const rules = rulesFrom(settings);
@@ -78,6 +78,14 @@ export function AttendanceGrid({ month, emps, att, readOnly, onSaved }: {
     return jy === y && jm === m ? jd : 1;
   };
 
+  /** The 2nd and 4th Saturday are week offs unless HR painted something else on that day. */
+  const auto = (e: Employee, d: number) => (d >= firstDay(e) && isOffSaturday(y, m, d) ? 'W' : undefined);
+  const effective = (e: Employee, marked: Days): Days => {
+    const out = { ...marked };
+    for (const d of days) if (out[d] === undefined && auto(e, d)) out[d] = 'W';
+    return out;
+  };
+
   const edit = (id: string, fn: (r: RowState) => RowState) => setRows(rs => ({ ...rs, [id]: { ...fn(rs[id]), dirty: true } }));
   const paint = (e: Employee, d: number) => {
     if (readOnly || d < firstDay(e)) return;
@@ -90,7 +98,7 @@ export function AttendanceGrid({ month, emps, att, readOnly, onSaved }: {
         const r = rs[e.id]; const nd = { ...r.days }; let changed = false;
         for (const d of days) {
           if (d < firstDay(e)) continue;
-          const v = fn(e, d, nd[d]);
+          const v = fn(e, d, nd[d] ?? auto(e, d));
           if (v === undefined) continue;
           if (v === null || v === '') { if (nd[d] !== undefined) { delete nd[d]; changed = true; } } else if (nd[d] !== v) { nd[d] = v; changed = true; }
         }
@@ -104,12 +112,12 @@ export function AttendanceGrid({ month, emps, att, readOnly, onSaved }: {
     if (!todo.length) return;
     setSaving(true);
     const payload = todo.map(e => {
-      const r = rows[e.id]; const c = countsOf(r.days);
+      const r = rows[e.id]; const eff = effective(e, r.days); const c = countsOf(eff);
       return {
         employee_id: e.id, month, salary: Number(attBy.get(e.id)?.salary) || Number(e.monthly_salary) || 0,
         present_days: c.present, half_days: c.half, absent_days: c.absent, leave_days: c.leave, weekoff_days: c.weekoff, holiday_days: c.holiday,
         arrears: num(r.arrears), other_deduction: num(r.deduction),
-        daily: Object.fromEntries(Object.entries(r.days).map(([k, v]) => [String(k), v])),
+        daily: Object.fromEntries(Object.entries(eff).map(([k, v]) => [String(k), v])),
       };
     });
     const sb = supabaseBrowser();
@@ -148,6 +156,7 @@ export function AttendanceGrid({ month, emps, att, readOnly, onSaved }: {
           </div>
           <p className="muted small" style={{ margin: '0 0 10px' }}>
             Click a <b>day number</b> to apply the selected status to everyone that day (e.g. a public holiday). Click <b>“P”</b> next to a name to mark that person present on all empty days.
+            The <b>2nd and 4th Saturday</b> are week offs automatically (no salary cut) — paint over them if someone worked.
             Days before someone&apos;s joining date are greyed out. Nothing is saved until you press <b>Save</b>.
           </p>
         </>
@@ -174,13 +183,15 @@ export function AttendanceGrid({ month, emps, att, readOnly, onSaved }: {
               const r = rows[e.id]; if (!r) return null;
               const a = attBy.get(e.id);
               const totalsOnly = !!a && !a.daily && !r.dirty;
+              const shownDays = effective(e, r.days);
               const c = totalsOnly
                 ? { present: +a!.present_days, half: +a!.half_days, absent: +a!.absent_days, leave: +a!.leave_days, weekoff: +a!.weekoff_days, holiday: +a!.holiday_days }
-                : countsOf(r.days);
+                : countsOf(shownDays);
               const pay = computePay({
                 salary: Number(a?.salary) || Number(e.monthly_salary) || 0, arrears: num(r.arrears), otherDeduction: num(r.deduction),
-                pf: Number(e.pf_amount), tds: Number(e.tds_amount), att: c, daysInMonth: dim,
+                pf: Number(e.pf_amount), tds: Number(e.tds_amount), att: c, daysInMonth: dim, carry: carry.get(e.id),
               }, rules);
+              const cf = carry.get(e.id);
               const fd = firstDay(e);
               return (
                 <tr key={e.id} className={r.dirty ? 'dirty' : ''}>
@@ -189,7 +200,7 @@ export function AttendanceGrid({ month, emps, att, readOnly, onSaved }: {
                     {!readOnly && <button className="mini" title="Mark present on all empty days" onClick={() => bulk((_, __, cur) => (cur ? undefined : 'P'), [e])}>P</button>}
                   </td>
                   {days.map(d => {
-                    const v = r.days[d];
+                    const v = shownDays[d];
                     const off = d < fd;
                     const b = BRUSHES.find(x => x.code === v);
                     return (
@@ -207,7 +218,13 @@ export function AttendanceGrid({ month, emps, att, readOnly, onSaved }: {
                   <td className="n"><b>{pay.paidDays}</b></td>
                   <td><input className="mi" value={r.arrears} disabled={readOnly} inputMode="decimal" onChange={ev => edit(e.id, s => ({ ...s, arrears: ev.target.value }))} /></td>
                   <td><input className="mi" value={r.deduction} disabled={readOnly} inputMode="decimal" onChange={ev => edit(e.id, s => ({ ...s, deduction: ev.target.value }))} /></td>
-                  <td className="n"><b>{inrWhole(pay.net)}</b>{totalsOnly && <div className="muted" style={{ fontSize: 10 }}>totals only</div>}</td>
+                  <td className="n"><b>{inrWhole(pay.net)}</b>{totalsOnly && <div className="muted" style={{ fontSize: 10 }}>totals only</div>}
+                    {cf && (cf.arrears > 0 || cf.deduction > 0) && (
+                      <div className="muted" style={{ fontSize: 10 }} title="Brought forward from last month and already included in this net pay">
+                        b/f {cf.arrears > 0 ? `+${inrWhole(cf.arrears)}` : ''} {cf.deduction > 0 ? `−${inrWhole(cf.deduction)}` : ''}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               );
             })}

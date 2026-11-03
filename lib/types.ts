@@ -92,6 +92,22 @@ export interface PayslipRow {
   generated_at: string;
 }
 
+export interface RelievingLetterData {
+  employee: { code: string; name: string; designation: string | null; department: string | null };
+  doj: string | null;
+  relievedOn: string; // YYYY-MM-DD, last working day
+  issueDate: string; // YYYY-MM-DD
+}
+
+export interface ExitRecord {
+  employee_id: string;
+  relieved_on: string;
+  payslip_months: 3 | 6;
+  letter: RelievingLetterData;
+  payslips: PayslipData[];
+  created_at: string;
+}
+
 export const EMPLOYEE_TEXT_FIELDS = [
   'department', 'designation', 'email', 'phone', 'location', 'manager',
   'bank_name', 'account_no', 'ifsc', 'pan', 'pf_no',

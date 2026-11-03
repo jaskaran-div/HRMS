@@ -14,11 +14,11 @@ const att = [{ id: 'a1', employee_id: '1', month: '2026-02-01', salary: 35000, p
 
 const html = renderToString(
   <AppProvider profile={profile} settings={settings}>
-    <AttendanceGrid month="2026-02-01" emps={emps} att={att} readOnly={false} onSaved={() => {}} />
+    <AttendanceGrid month="2026-02-01" emps={emps} att={att} carry={new Map()} readOnly={false} onSaved={() => {}} />
   </AppProvider>);
 const must = (label: string, ok: boolean) => { console.log(ok ? '  ok  ' : '  FAIL', label); if (!ok) process.exitCode = 1; };
 must('renders both employees', html.includes('Fabi Khan') && html.includes('Shreya Vyas'));
 must('28 day headers (last is 28)', html.includes('>28<'));
 must('Fabi net = 34,375 (27.5 paid days of 28)', html.includes('₹34,375'));
 must('days before joining (1-12) are greyed for Shreya', (html.match(/cell off/g) ?? []).length === 12);
-must('Shreya has no attendance yet → ₹0', html.includes('₹0'));
+must('Shreya (no marks yet) is paid only the auto 2nd/4th Saturday week offs, 14 & 28 Feb', html.includes('₹1,429'));

@@ -7,6 +7,7 @@ import { supabaseBrowser } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/fetch-all';
 import { useLoad } from '@/lib/use-load';
 import { buildPayslip, payFor, rulesFrom } from '@/lib/payroll';
+import { loadCarry } from '@/lib/carry';
 import { currentYM, fmtDate, monthLabel, monthStart, shiftMonth, todayISO } from '@/lib/dates';
 import { inr, inrWhole } from '@/lib/format';
 import { downloadPayslips, openPayslips, printPayslips, payslipFilename } from '@/lib/payslip-pdf';
@@ -32,7 +33,8 @@ export default function PayrollPage() {
       fetchAll<PayslipRow>((a, b) => sb.from('payslips').select('*').eq('month', month).range(a, b)),
       fetchAll<{ month: string }>((a, b) => sb.from('payslips').select('month').range(a, b)),
     ]);
-    return { emps, att, slips, months: [...new Set(months.map(x => x.month))] };
+    const carry = await loadCarry(sb, month, emps, rules);
+    return { emps, att, slips, carry, months: [...new Set(months.map(x => x.month))] };
   }, [month]);
 
   const rows = useMemo(() => {
@@ -40,14 +42,15 @@ export default function PayrollPage() {
     const slipBy = new Map((data?.slips ?? []).map(s => [s.employee_id, s]));
     return (data?.emps ?? []).map(emp => {
       const att = attBy.get(emp.id);
-      const pay = att ? payFor(emp, att, rules) : null;
+      const carry = data?.carry.get(emp.id);
+      const pay = att ? payFor(emp, att, rules, carry) : null;
       const slip = slipBy.get(emp.id);
       const hasSalary = !!att && (Number(att.salary) > 0 || Number(emp.monthly_salary) > 0);
       let status: 'noatt' | 'nosalary' | 'new' | 'ok' | 'stale' = 'new';
       if (!att) status = 'noatt';
       else if (!hasSalary) status = 'nosalary';
       else if (slip) status = Math.abs(slip.net_pay - pay!.net) > 0.5 || slip.data.paidDays !== pay!.paidDays ? 'stale' : 'ok';
-      return { emp, att, pay, slip, status };
+      return { emp, att, pay, slip, status, carry };
     });
   }, [data, rules]);
 
@@ -62,7 +65,7 @@ export default function PayrollPage() {
     setBusy(true);
     const sb = supabaseBrowser();
     const payload = ready.map(r => {
-      const d = buildPayslip(r.emp, r.att!, rules, payDate);
+      const d = buildPayslip(r.emp, r.att!, rules, payDate, r.carry);
       return { employee_id: r.emp.id, month, pay_date: payDate, net_pay: d.net, data: d, generated_at: new Date().toISOString() };
     });
     for (let i = 0; i < payload.length; i += 100) {
@@ -77,7 +80,7 @@ export default function PayrollPage() {
 
   /** Live numbers from the system when attendance exists (works for any month); otherwise the saved copy. */
   const slipData = (r: (typeof rows)[number]): PayslipData | null =>
-    r.att && r.status !== 'nosalary' ? buildPayslip(r.emp, r.att, rules, r.slip?.pay_date ?? payDate) : r.slip?.data ?? null;
+    r.att && r.status !== 'nosalary' ? buildPayslip(r.emp, r.att, rules, r.slip?.pay_date ?? payDate, r.carry) : r.slip?.data ?? null;
 
   async function saveOne(r: (typeof rows)[number]) {
     const d = slipData(r);
@@ -118,7 +121,9 @@ export default function PayrollPage() {
 
       <div className="note" style={{ marginBottom: 16 }}>
         Pay = monthly salary ÷ days in the month × paid days. Paid days = present + ½ half-days + week offs + holidays + paid leave;
-        the first {Number(settings.paid_leave_per_month)} absent day(s) each month count as paid leave. Payslips are saved here for the latest {KEEP_MONTHS} months
+        the first {Number(settings.paid_leave_per_month)} absent day(s) each month count as paid leave; the 2nd and 4th Saturday are week offs.
+        Last month&apos;s arrears / deductions that were never paid on a payslip (and any negative net pay) are brought forward into this month automatically.
+        Only active employees are listed; inactive ones are archived with their relieving letter and last payslips. Payslips are saved here for the latest {KEEP_MONTHS} months
         and older ones are deleted automatically.
       </div>
 
