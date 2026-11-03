@@ -256,6 +256,9 @@ create policy employees_insert on public.employees for insert to authenticated w
 drop policy if exists employees_update on public.employees;
 create policy employees_update on public.employees for update to authenticated
   using (public.can_edit()) with check (public.can_edit());
+-- delete = admin only (bulk delete in the Employees list; also removes their attendance, payslips and exit documents)
+drop policy if exists employees_delete on public.employees;
+create policy employees_delete on public.employees for delete to authenticated using (public.is_admin());
 
 -- attendance
 drop policy if exists attendance_read on public.attendance;

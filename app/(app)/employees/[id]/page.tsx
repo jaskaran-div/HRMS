@@ -8,15 +8,16 @@ import { FormModal } from '@/components/Modal';
 import { AttendanceModal } from '@/components/AttendanceModal';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { useLoad } from '@/lib/use-load';
-import { fmtDate, monthLabel, shiftMonth } from '@/lib/dates';
+import { fmtDate, monthLabel } from '@/lib/dates';
 import { initials, inr } from '@/lib/format';
-import { carryFrom, payFor, rulesFrom } from '@/lib/payroll';
+import { payFor, rulesFrom } from '@/lib/payroll';
+import { buildExit, carryInto, leavingDate } from '@/lib/exit';
 import { downloadRelieving, openRelieving } from '@/lib/relieving-pdf';
 import { EMPLOYEE_FIELDS, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
 import { downloadPayslips, openPayslips, printPayslips, payslipFilename } from '@/lib/payslip-pdf';
 import { buildPayslip } from '@/lib/payroll';
 import { todayISO } from '@/lib/dates';
-import type { Attendance, Employee, ExitRecord, PayslipRow, RelievingLetterData } from '@/lib/types';
+import type { Attendance, Employee, ExitRecord, PayslipRow } from '@/lib/types';
 
 type Tab = 'profile' | 'pay' | 'payslips';
 
@@ -31,7 +32,7 @@ export default function EmployeePage() {
   const [editing, setEditing] = useState(false);
   const [attModal, setAttModal] = useState<{ month: string | null; existing?: Attendance } | null>(null);
   const [exitOpen, setExitOpen] = useState(false);
-  const [relievedOn, setRelievedOn] = useState(todayISO());
+  const [relievedOn, setRelievedOn] = useState('');
   const [exitMonths, setExitMonths] = useState<3 | 6>(3);
   const [busyExit, setBusyExit] = useState(false);
 
@@ -64,29 +65,18 @@ export default function EmployeePage() {
   const rules = rulesFrom(settings);
   const company = { name: settings.company_name, address: settings.company_address, logo: settings.logo, footer: settings.footer_note };
 
-  /** Carry-forward into attendance row `a`; `prevIsBatch` = the previous month is being generated in the same batch (so it is paid). */
-  const carryInto = (a: Attendance, prevIsBatch: boolean) => {
-    const prevMonth = shiftMonth(a.month, -1);
-    const oldest = slips.reduce<string | null>((o, s) => (o === null || s.month < o ? s.month : o), null);
-    const saved = prevIsBatch || slips.some(s => s.month === prevMonth) || (oldest !== null && prevMonth < oldest);
-    return carryFrom(emp, att.find(x => x.month === prevMonth), saved, rules);
-  };
+  const carryOf = (a: Attendance) => carryInto(emp, att, slips, a, false, rules);
+  const leaving = leavingDate(emp);
+  const exitDate = relievedOn || leaving || '';
 
   async function makeInactive() {
-    if (!relievedOn) return;
-    if (!confirm(`Mark ${emp.name} inactive from ${fmtDate(relievedOn)}? They leave the lists and payroll; the relieving letter and last ${exitMonths} months of payslips are generated and kept.`)) return;
+    if (!exitDate) { notify('Enter the last working day first.', 'err'); return; }
+    if (!confirm(`Mark ${emp.name} inactive from ${fmtDate(exitDate)}? They leave the lists and payroll; the relieving letter and last ${exitMonths} months of payslips are generated and kept.`)) return;
     setBusyExit(true);
-    const relMonth = `${relievedOn.slice(0, 7)}-01`;
-    const from = shiftMonth(relMonth, -(exitMonths - 1));
-    const months = att.filter(a => a.month >= from && a.month <= relMonth).sort((a, b) => (a.month < b.month ? -1 : 1));
-    const payslips = months.map((a, i) => buildPayslip(emp, a, rules, todayISO(), carryInto(a, i > 0)));
-    const letter: RelievingLetterData = {
-      employee: { code: emp.emp_code, name: emp.name, designation: emp.designation, department: emp.department },
-      doj: emp.doj, relievedOn, issueDate: todayISO(),
-    };
+    const { letter, payslips } = buildExit(emp, att, slips, rules, exitDate, exitMonths, todayISO());
     const sb = supabaseBrowser();
     const rec = await sb.from('exit_records').upsert(
-      { employee_id: emp.id, relieved_on: relievedOn, payslip_months: exitMonths, letter, payslips }, { onConflict: 'employee_id' });
+      { employee_id: emp.id, relieved_on: exitDate, payslip_months: exitMonths, letter, payslips }, { onConflict: 'employee_id' });
     if (rec.error) { notify(rec.error.message, 'err'); setBusyExit(false); return; }
     const { error } = await sb.from('employees').update({ archived_at: new Date().toISOString() }).eq('id', emp.id);
     setBusyExit(false);
@@ -160,11 +150,11 @@ export default function EmployeePage() {
               {canEdit && !emp.archived_at && exitOpen && (
                 <div className="note" style={{ marginTop: 14 }}>
                   <div className="row">
-                    <label className="small">Last working day <input type="date" value={relievedOn} onChange={e => setRelievedOn(e.target.value)} /></label>
+                    <label className="small">Last working day <input type="date" value={exitDate} onChange={e => setRelievedOn(e.target.value)} /></label>
                     <label className="small">Save payslips of the last{' '}
                       <select value={exitMonths} onChange={e => setExitMonths(+e.target.value as 3 | 6)}><option value={3}>3 months</option><option value={6}>6 months</option></select>
                     </label>
-                    <button className="btn danger" disabled={busyExit || !relievedOn} onClick={makeInactive}>{busyExit ? 'Saving…' : 'Make inactive & generate documents'}</button>
+                    <button className="btn danger" disabled={busyExit || !exitDate} onClick={makeInactive}>{busyExit ? 'Saving…' : 'Make inactive & generate documents'}</button>
                   </div>
                   <p className="muted small" style={{ margin: 0 }}>Generates the relieving letter and the payslips (from saved attendance) and keeps them on this page. Payroll skips inactive employees.</p>
                 </div>
@@ -198,7 +188,7 @@ export default function EmployeePage() {
                     <th className="n">Paid days</th><th className="n">LOP</th><th className="n">Gross</th><th className="n">Net pay</th><th /></tr></thead>
                   <tbody>
                     {att.map(a => {
-                      const cf = carryInto(a, false);
+                      const cf = carryOf(a);
                       const p = payFor(emp, a, rules, cf);
                       return (
                         <tr key={a.id}>
