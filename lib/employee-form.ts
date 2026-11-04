@@ -9,6 +9,8 @@ export const EMPLOYEE_FIELDS: Field[] = [
   { key: 'designation', label: 'Designation' },
   { key: 'email', label: 'Email', type: 'email' },
   { key: 'phone', label: 'Phone' },
+  { key: 'emergency_name', label: 'Emergency contact name' },
+  { key: 'emergency_phone', label: 'Emergency contact number' },
   { key: 'doj', label: 'Date of joining', type: 'date' },
   { key: 'dob', label: 'Date of birth', type: 'date' },
   { key: 'location', label: 'Location' },
@@ -23,7 +25,7 @@ export const EMPLOYEE_FIELDS: Field[] = [
   { key: 'tds_amount', label: 'Income tax / month (₹)', type: 'number' },
 ];
 
-const TEXT_KEYS = ['department', 'designation', 'email', 'phone', 'location', 'manager', 'bank_name', 'account_no', 'ifsc', 'pan', 'pf_no'] as const;
+const TEXT_KEYS = ['department', 'designation', 'email', 'phone', 'emergency_name', 'emergency_phone', 'location', 'manager', 'bank_name', 'account_no', 'ifsc', 'pan', 'pf_no'] as const;
 
 export function employeeToValues(e?: Employee): Values {
   const v: Values = {};

@@ -11,7 +11,7 @@ import { inrWhole } from '@/lib/format';
 import { fmtDate } from '@/lib/dates';
 import type { Employee } from '@/lib/types';
 
-const TEXT = ['department', 'designation', 'email', 'phone', 'location', 'manager', 'bank_name', 'account_no', 'ifsc', 'pan', 'pf_no'] as const;
+const TEXT = ['department', 'designation', 'email', 'phone', 'emergency_name', 'emergency_phone', 'location', 'manager', 'bank_name', 'account_no', 'ifsc', 'pan', 'pf_no'] as const;
 
 export default function ImportPage() {
   const { canEdit, notify } = useApp();
@@ -71,6 +71,7 @@ export default function ImportPage() {
     const all = await loadAll();
     downloadXlsx(all.map(e => ({
       'Employee ID': e.emp_code, 'Name': e.name, Department: e.department, Designation: e.designation, Email: e.email, Phone: e.phone,
+      'Emergency Contact Name': e.emergency_name, 'Emergency Contact Number': e.emergency_phone,
       'Date of Joining': e.doj, 'Date of Birth': e.dob, Location: e.location, 'Reporting Manager': e.manager,
       'Bank Name': e.bank_name, 'Account No': e.account_no, IFSC: e.ifsc, PAN: e.pan, 'PF / UAN': e.pf_no,
       'Monthly Salary': e.monthly_salary, 'Provident Fund': e.pf_amount, 'Income Tax': e.tds_amount, ...e.extra,
@@ -81,7 +82,7 @@ export default function ImportPage() {
   function template() {
     downloadXlsx([{
       'Employee ID': 'ISFTD0001', 'Employee Name': 'Example Person', Department: 'Business Development', Designation: 'Executive',
-      Email: 'example@company.com', Phone: '9876500000', 'Date of Joining': '2026-01-15', 'Date of Birth': '1995-05-20',
+      Email: 'example@company.com', Phone: '9876500000', 'Emergency Contact Name': 'Relative Name', 'Emergency Contact Number': '9876511111', 'Date of Joining': '2026-01-15', 'Date of Birth': '1995-05-20',
       'Bank Name': 'HDFC Bank', 'Account No': '50100123456789', IFSC: 'HDFC0001234', PAN: 'ABCDE1234F', 'UAN': '100200300400',
       'Monthly Salary': 25000, 'Provident Fund': 0, 'Income Tax': 0,
     }], 'Employees', 'employee_sheet_template.xlsx');
@@ -99,7 +100,7 @@ export default function ImportPage() {
         <div className="card">
           <h3>Upload your employee sheet</h3>
           <p className="muted small" style={{ marginTop: 0 }}>
-            Excel or CSV, one row per employee. Required column: <b>Employee ID</b>. Matched by column name: Employee Name, Department, Designation, Email, Phone,
+            Excel or CSV, one row per employee. Required column: <b>Employee ID</b>. Matched by column name: Employee Name, Department, Designation, Email, Phone, Emergency Contact Name, Emergency Contact Number,
             Date of Joining, Date of Birth, Bank Name, Account No, IFSC, PAN, UAN / PF No, <b>Monthly Salary</b>, Provident Fund, Income Tax.
             Any other column is kept as an extra detail. Re-uploading updates existing employees; blank cells never erase saved data.
           </p>

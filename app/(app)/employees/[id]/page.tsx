@@ -131,7 +131,7 @@ export default function EmployeePage() {
               <div className="grid">
                 {kv('Employee ID', emp.emp_code)}{kv('Department', emp.department)}{kv('Designation', emp.designation)}
                 {kv('Date of joining', fmtDate(emp.doj))}{kv('Date of birth', fmtDate(emp.dob))}{kv('Location', emp.location)}
-                {kv('Reporting manager', emp.manager)}{kv('Email', emp.email)}{kv('Phone', emp.phone)}
+                {kv('Reporting manager', emp.manager)}{kv('Email', emp.email)}{kv('Phone', emp.phone)}{kv('Emergency contact', emp.emergency_name)}{kv('Emergency number', emp.emergency_phone)}
                 {kv('PAN', emp.pan)}{kv('PF / UAN', emp.pf_no)}{kv('Bank', emp.bank_name)}
                 {kv('Account number', emp.account_no)}{kv('IFSC', emp.ifsc)}
                 {kv('Monthly salary', emp.monthly_salary ? inr(emp.monthly_salary) : 'Not set')}

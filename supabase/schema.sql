@@ -59,6 +59,8 @@ create table if not exists public.employees (
   designation text,
   email text,
   phone text,
+  emergency_name text,
+  emergency_phone text,
   doj date,
   dob date,
   location text,
@@ -282,4 +284,3 @@ create policy payslips_update on public.payslips for update to authenticated
 
 -- audit log: admins read; rows are only ever written by the trigger
 drop policy if exists audit_read on public.audit_log;
-create policy audit_read on public.audit_log for select to authenticated using (public.is_admin());

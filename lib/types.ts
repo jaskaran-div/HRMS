@@ -30,6 +30,8 @@ export interface Employee {
   designation: string | null;
   email: string | null;
   phone: string | null;
+  emergency_name: string | null;
+  emergency_phone: string | null;
   doj: string | null;
   dob: string | null;
   location: string | null;
@@ -109,6 +111,6 @@ export interface ExitRecord {
 }
 
 export const EMPLOYEE_TEXT_FIELDS = [
-  'department', 'designation', 'email', 'phone', 'location', 'manager',
+  'department', 'designation', 'email', 'phone', 'emergency_name', 'emergency_phone', 'location', 'manager',
   'bank_name', 'account_no', 'ifsc', 'pan', 'pf_no',
 ] as const;

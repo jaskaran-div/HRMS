@@ -3,7 +3,7 @@ import { norm, num } from './format';
 import { toISODate } from './dates';
 import type { Employee } from './types';
 
-type TextKey = 'name' | 'department' | 'designation' | 'email' | 'phone' | 'location' | 'manager'
+type TextKey = 'name' | 'department' | 'designation' | 'email' | 'phone' | 'emergency_name' | 'emergency_phone' | 'location' | 'manager'
   | 'bank_name' | 'account_no' | 'ifsc' | 'pan' | 'pf_no';
 type DateKey = 'doj' | 'dob';
 type NumKey = 'monthly_salary' | 'pf_amount' | 'tds_amount';
@@ -16,6 +16,8 @@ const ALIASES: Record<TextKey | DateKey | NumKey, string[]> = {
   designation: ['designation', 'position', 'role', 'jobtitle', 'title'],
   email: ['email', 'emailid', 'mail', 'officialemail'],
   phone: ['phone', 'mobile', 'contact', 'phoneno', 'mobileno', 'contactno'],
+  emergency_name: ['emergencyname', 'emergencycontactname', 'emergencycontact', 'emergencyperson'],
+  emergency_phone: ['emergencynumber', 'emergencyphone', 'emergencycontactnumber', 'emergencycontactno', 'emergencyphoneno', 'emergencymobile'],
   location: ['location', 'branch', 'office', 'workplace'],
   manager: ['manager', 'reportingmanager', 'reportsto'],
   bank_name: ['bank', 'bankname'],

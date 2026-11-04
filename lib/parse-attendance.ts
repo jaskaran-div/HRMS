@@ -12,6 +12,7 @@ const STATUS: Record<string, DayStatus> = {
   halfday: 'half', half: 'half', hd: 'half',
   paidleave: 'leave', pl: 'leave', leave: 'leave', cl: 'leave', sl: 'leave', el: 'leave', casualleave: 'leave', sickleave: 'leave',
   holiday: 'holiday', ph: 'holiday', publicholiday: 'holiday', h: 'holiday',
+  w: 'weekoff', l: 'leave', hdp: 'half', hday: 'half',
 };
 
 export const statusOf = (v: unknown): DayStatus => {
@@ -29,19 +30,20 @@ const COLUMNS: Record<string, string[]> = {
   salary: ['salary', 'monthlysalary', 'grosssalary'],
   arrears: ['arrears', 'arrear'],
   deduction: ['deduction', 'deductions', 'otherdeduction', 'otherdeductions'],
-  present: ['presentdays', 'present', 'dayspresent'],
-  absent: ['unpaiddays', 'absentdays', 'absent', 'lop', 'lopdays'],
-  half: ['halfday', 'halfdays'],
-  leave: ['paidleavedays', 'paidleave', 'leavedays', 'leavestaken', 'leaves'],
-  weekoff: ['sundayweekoff', 'weekoff', 'weekoffs', 'weekoffdays'],
+  present: ['presentdays', 'present', 'dayspresent', 'totalpresent', 'totalp', 'p'],
+  absent: ['unpaiddays', 'absentdays', 'absent', 'lop', 'lopdays', 'totalabsent', 'totala', 'a'],
+  half: ['halfday', 'halfdays', 'totalhalfday', 'totalhalfdays'],
+  leave: ['paidleavedays', 'paidleave', 'leavedays', 'leavestaken', 'leaves', 'totalleave', 'totalleaves'],
+  weekoff: ['sundayweekoff', 'weekoff', 'weekoffs', 'weekoffdays', 'totalweekoff', 'wo'],
 };
 const LOOKUP = new Map<string, string>();
 Object.entries(COLUMNS).forEach(([k, list]) => list.forEach(a => LOOKUP.set(a, k)));
 
 /** Which day of the selected month does this header stand for? 'other' = a date in a different month. */
 export function headerDay(header: string, month: number, dim: number): number | 'other' | null {
-  const s = header.trim();
-  let m = /^(\d{1,2})[\s\-/.]+([A-Za-z]{3,9})(?:[\s\-/.,]+\d{2,4})?$/.exec(s);
+  // drop a weekday label such as "Mon 1", "1 Mon", "01-Nov (Sat)"
+  const s = header.trim().replace(/\(?\b(mon|tue|wed|thu|fri|sat|sun)[a-z]*\b\)?[,\s]*/gi, '').trim();
+  let m =/^(\d{1,2})[\s\-/.]+([A-Za-z]{3,9})(?:[\s\-/.,]+\d{2,4})?$/.exec(s);
   if (m) {
     const mo = monthFromName(m[2]);
     if (!mo) return null;
