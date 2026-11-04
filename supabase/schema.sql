@@ -61,6 +61,8 @@ create table if not exists public.employees (
   phone text,
   emergency_name text,
   emergency_phone text,
+  exit_type text,                                                         -- Resigned / Terminated / Other (set when inactive)
+  exit_remarks text,
   doj date,
   dob date,
   location text,
@@ -106,6 +108,7 @@ create table if not exists public.attendance (
   holiday_days numeric(4,1) not null default 0,
   arrears numeric(12,2) not null default 0,
   other_deduction numeric(12,2) not null default 0,
+  carry_cleared boolean not null default false,    -- HR settled this month's arrears / deductions, so they do not carry to next month
   daily jsonb,                                     -- {"1":"P","2":"A",...} when uploaded day-wise
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

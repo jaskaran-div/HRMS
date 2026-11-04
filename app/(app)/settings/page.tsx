@@ -31,7 +31,16 @@ export default function SettingsPage() {
       const s = Math.min(1, 320 / img.width);
       const c = document.createElement('canvas');
       c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      // Make a white / near-white background transparent (soft edge) so the logo sits cleanly on every PDF.
+      const px = ctx.getImageData(0, 0, c.width, c.height);
+      for (let i = 0; i < px.data.length; i += 4) {
+        const low = Math.min(px.data[i], px.data[i + 1], px.data[i + 2]);
+        if (low >= 250) px.data[i + 3] = 0;
+        else if (low >= 225) px.data[i + 3] = Math.min(px.data[i + 3], Math.round(((250 - low) / 25) * 255));
+      }
+      ctx.putImageData(px, 0, 0);
       setLogo(c.toDataURL('image/png'));
       URL.revokeObjectURL(url);
     };

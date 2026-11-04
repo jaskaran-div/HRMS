@@ -28,6 +28,10 @@ export function AttendanceModal({ emp, month, existing, onClose, onSaved }: {
     days('holiday_days', 'Public holidays'),
     { key: 'arrears', label: 'Arrears (₹)', type: 'number', hint: 'Added to earnings' },
     { key: 'other_deduction', label: 'Other deductions (₹)', type: 'number' },
+    {
+      key: 'carry_cleared', label: 'Carry arrears / deductions to next month?', type: 'select', wide: true,
+      options: [{ value: 'no', label: 'Yes — carry forward if the payslip was not generated' }, { value: 'yes', label: 'No — already cleared, do not carry forward' }],
+    },
   ];
   const g = (k: keyof Attendance) => String(existing?.[k] ?? 0);
   const initial = {
@@ -35,6 +39,7 @@ export function AttendanceModal({ emp, month, existing, onClose, onSaved }: {
     salary: String(existing?.salary ?? emp.monthly_salary ?? 0),
     present_days: g('present_days'), half_days: g('half_days'), absent_days: g('absent_days'), leave_days: g('leave_days'),
     weekoff_days: g('weekoff_days'), holiday_days: g('holiday_days'), arrears: g('arrears'), other_deduction: g('other_deduction'),
+    carry_cleared: existing?.carry_cleared ? 'yes' : 'no',
   };
 
   return (
@@ -52,7 +57,7 @@ export function AttendanceModal({ emp, month, existing, onClose, onSaved }: {
           employee_id: emp.id, month: m, salary: num(v.salary),
           present_days: num(v.present_days), half_days: num(v.half_days), absent_days: num(v.absent_days),
           leave_days: num(v.leave_days), weekoff_days: num(v.weekoff_days), holiday_days: num(v.holiday_days),
-          arrears: num(v.arrears), other_deduction: num(v.other_deduction), daily: null,
+          arrears: num(v.arrears), other_deduction: num(v.other_deduction), carry_cleared: v.carry_cleared === 'yes', daily: null,
         }, { onConflict: 'employee_id,month' });
         if (error) return error.message;
         notify('Attendance saved');

@@ -11,6 +11,7 @@ import { useLoad } from '@/lib/use-load';
 import { fmtDate, monthLabel } from '@/lib/dates';
 import { initials, inr } from '@/lib/format';
 import { payFor, rulesFrom } from '@/lib/payroll';
+import { EXIT_TYPES } from '@/lib/exit-types';
 import { buildExit, carryInto, leavingDate } from '@/lib/exit';
 import { downloadRelieving, openRelieving } from '@/lib/relieving-pdf';
 import { EMPLOYEE_FIELDS, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
@@ -35,6 +36,8 @@ export default function EmployeePage() {
   const [relievedOn, setRelievedOn] = useState('');
   const [exitMonths, setExitMonths] = useState<3 | 6>(3);
   const [busyExit, setBusyExit] = useState(false);
+  const [exitType, setExitType] = useState<string>(EXIT_TYPES[0]);
+  const [editingExit, setEditingExit] = useState(false);
 
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
@@ -78,7 +81,7 @@ export default function EmployeePage() {
     const rec = await sb.from('exit_records').upsert(
       { employee_id: emp.id, relieved_on: exitDate, payslip_months: exitMonths, letter, payslips }, { onConflict: 'employee_id' });
     if (rec.error) { notify(rec.error.message, 'err'); setBusyExit(false); return; }
-    const { error } = await sb.from('employees').update({ archived_at: new Date().toISOString() }).eq('id', emp.id);
+    const { error } = await sb.from('employees').update({ archived_at: new Date().toISOString(), exit_type: exitType }).eq('id', emp.id);
     setBusyExit(false);
     if (error) { notify(error.message, 'err'); return; }
     notify(`${emp.name} is now inactive · relieving letter + ${payslips.length} payslip${payslips.length === 1 ? '' : 's'} saved`);
@@ -133,6 +136,7 @@ export default function EmployeePage() {
                 {kv('Date of joining', fmtDate(emp.doj))}{kv('Date of birth', fmtDate(emp.dob))}{kv('Location', emp.location)}
                 {kv('Reporting manager', emp.manager)}{kv('Email', emp.email)}{kv('Phone', emp.phone)}{kv('Emergency contact', emp.emergency_name)}{kv('Emergency number', emp.emergency_phone)}
                 {kv('PAN', emp.pan)}{kv('PF / UAN', emp.pf_no)}{kv('Bank', emp.bank_name)}
+                {emp.archived_at && <>{kv('Exit reason', emp.exit_type || 'Not set')}{kv('Last working day', fmtDate(exit?.relieved_on ?? leaving))}{kv('Exit remarks', emp.exit_remarks)}</>}
                 {kv('Account number', emp.account_no)}{kv('IFSC', emp.ifsc)}
                 {kv('Monthly salary', emp.monthly_salary ? inr(emp.monthly_salary) : 'Not set')}
                 {kv('Provident Fund / month', emp.pf_amount ? inr(emp.pf_amount) : '')}
@@ -143,13 +147,16 @@ export default function EmployeePage() {
                 <div className="row" style={{ marginTop: 22 }}>
                   <button className="btn primary" onClick={() => setEditing(true)}>✏️ Edit details</button>
                   {emp.archived_at
-                    ? <button className="btn" onClick={makeActive}>Mark active</button>
+                    ? <><button className="btn" onClick={() => setEditingExit(true)}>Edit exit details</button><button className="btn" onClick={makeActive}>Mark active</button></>
                     : <button className="btn danger" onClick={() => setExitOpen(o => !o)}>Mark inactive…</button>}
                 </div>
               )}
               {canEdit && !emp.archived_at && exitOpen && (
                 <div className="note" style={{ marginTop: 14 }}>
                   <div className="row">
+                    <label className="small">Reason{' '}
+                      <select value={exitType} onChange={e => setExitType(e.target.value)}>{EXIT_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+                    </label>
                     <label className="small">Last working day <input type="date" value={exitDate} onChange={e => setRelievedOn(e.target.value)} /></label>
                     <label className="small">Save payslips of the last{' '}
                       <select value={exitMonths} onChange={e => setExitMonths(+e.target.value as 3 | 6)}><option value={3}>3 months</option><option value={6}>6 months</option></select>
@@ -260,6 +267,28 @@ export default function EmployeePage() {
       {attModal && (
         <AttendanceModal emp={emp} month={attModal.month} existing={attModal.existing}
           onClose={() => setAttModal(null)} onSaved={reload} />
+      )}
+      {editingExit && (
+        <FormModal
+          title={`Exit details — ${emp.name}`} onClose={() => setEditingExit(false)}
+          fields={[
+            { key: 'exit_type', label: 'Reason for leaving', type: 'select', options: [{ value: '', label: '— not set —' }, ...EXIT_TYPES.map(t => ({ value: t, label: t })), ...(emp.exit_type && !(EXIT_TYPES as readonly string[]).includes(emp.exit_type) ? [{ value: emp.exit_type, label: emp.exit_type }] : [])] },
+            { key: 'relieved_on', label: 'Last working day', type: 'date' },
+            { key: 'exit_remarks', label: 'Remarks', wide: true },
+          ]}
+          initial={{ exit_type: emp.exit_type ?? '', relieved_on: exit?.relieved_on ?? leaving ?? '', exit_remarks: emp.exit_remarks ?? '' }}
+          onSave={async v => {
+            const sb = supabaseBrowser();
+            const up = await sb.from('employees').update({ exit_type: v.exit_type || null, exit_remarks: v.exit_remarks || null }).eq('id', emp.id);
+            if (up.error) return up.error.message;
+            if (v.relieved_on && exit) {
+              const r = await sb.from('exit_records').update({ relieved_on: v.relieved_on, letter: { ...exit.letter, relievedOn: v.relieved_on } }).eq('employee_id', emp.id);
+              if (r.error) return r.error.message;
+            }
+            notify('Exit details saved');
+            reload();
+          }}
+        />
       )}
     </>
   );

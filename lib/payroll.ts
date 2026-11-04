@@ -128,7 +128,7 @@ export function carryFrom(
   emp: Employee, prev: Attendance | undefined, prevSlipSaved: boolean, rules: PayRules,
 ): Carry {
   const none = { arrears: 0, deduction: 0 };
-  if (!prev) return none;
+  if (!prev || prev.carry_cleared) return none; // HR marked last month's arrears / deductions as already settled
   const p = payFor(emp, prev, rules);
   let arrears = 0;
   let deduction = 0;

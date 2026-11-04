@@ -10,6 +10,7 @@ import { useLoad } from '@/lib/use-load';
 import { initials, inrWhole } from '@/lib/format';
 import { fmtDate, todayISO } from '@/lib/dates';
 import { rulesFrom } from '@/lib/payroll';
+import { EXIT_TYPES } from '@/lib/exit-types';
 import { buildExit, LEAVING_LABEL, leavingDate } from '@/lib/exit';
 import { EMPLOYEE_FIELDS, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
 import type { Attendance, Employee, PayslipRow } from '@/lib/types';
@@ -26,6 +27,7 @@ export default function EmployeesPage() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [exitMonths, setExitMonths] = useState<3 | 6>(3);
   const [busy, setBusy] = useState(false);
+  const [exitType, setExitType] = useState<string>(EXIT_TYPES[0]);
   const [problem, setProblem] = useState<string | null>(null);
   const [ask, setAsk] = useState<Record<string, string> | null>(null); // employee id -> date typed by HR
 
@@ -83,7 +85,7 @@ export default function EmployeesPage() {
         const { error } = await sb.from('exit_records').upsert(part, { onConflict: 'employee_id' });
         if (error) throw new Error(error.message);
       }
-      const { error } = await sb.from('employees').update({ archived_at: new Date().toISOString() }).in('id', ids);
+      const { error } = await sb.from('employees').update({ archived_at: new Date().toISOString(), exit_type: exitType }).in('id', ids);
       if (error) throw new Error(error.message);
       notify(`${items.length} employee${items.length > 1 ? 's' : ''} marked inactive · relieving letters and payslips saved`);
       setAsk(null);
@@ -143,6 +145,9 @@ export default function EmployeesPage() {
               <b>{selected.length} selected</b>
               {!archived && (
                 <>
+                  <label className="small">Reason{' '}
+                    <select value={exitType} onChange={e => setExitType(e.target.value)}>{EXIT_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+                  </label>
                   <label className="small">Save payslips of last{' '}
                     <select value={exitMonths} onChange={e => setExitMonths(+e.target.value as 3 | 6)}><option value={3}>3 months</option><option value={6}>6 months</option></select>
                   </label>
@@ -181,7 +186,7 @@ export default function EmployeesPage() {
           <table>
             <thead><tr>
               {canEdit && <th style={{ width: 28 }}><input type="checkbox" checked={allShown} onChange={toggleAll} aria-label="Select all shown" /></th>}
-              <th>Employee</th><th>ID</th><th>Department</th><th>Designation</th><th>Joined</th><th className="n">Monthly salary</th>
+              <th>Employee</th><th>ID</th><th>Department</th><th>Designation</th><th>Joined</th>{archived && <th>Exit</th>}<th className="n">Monthly salary</th>
             </tr></thead>
             <tbody>
               {list.map(e => (
@@ -193,11 +198,12 @@ export default function EmployeesPage() {
                   )}
                   <td><div className="who-c"><div className="av">{initials(e.name)}</div><b>{e.name}</b></div></td>
                   <td>{e.emp_code}</td><td>{e.department}</td><td>{e.designation}</td><td>{fmtDate(e.doj)}</td>
+                  {archived && <td>{e.exit_type ? <span className="pill gray">{e.exit_type}</span> : <span className="muted small">Not set</span>}{leavingDate(e) ? <span className="muted small"> · {fmtDate(leavingDate(e))}</span> : null}</td>}
                   <td className="n">{e.monthly_salary ? inrWhole(e.monthly_salary) : <span className="pill warn">Not set</span>}</td>
                 </tr>
               ))}
               {!list.length && !loading && (
-                <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 30 }}>
+                <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: 30 }}>
                   {all.length ? 'No employees match.' : 'No employees yet — click “Add employee”, or use Import / Export to upload a sheet.'}
                 </td></tr>
               )}

@@ -32,6 +32,8 @@ export interface Employee {
   phone: string | null;
   emergency_name: string | null;
   emergency_phone: string | null;
+  exit_type: string | null;
+  exit_remarks: string | null;
   doj: string | null;
   dob: string | null;
   location: string | null;
@@ -61,6 +63,7 @@ export interface Attendance {
   holiday_days: number;
   arrears: number;
   other_deduction: number;
+  carry_cleared: boolean;
   daily: Record<string, string> | null;
 }
 

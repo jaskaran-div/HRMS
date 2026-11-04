@@ -1,9 +1,10 @@
 import type { SheetRow } from './sheet';
 import { norm, num } from './format';
 import { toISODate } from './dates';
+import { normExitType } from './exit-types';
 import type { Employee } from './types';
 
-type TextKey = 'name' | 'department' | 'designation' | 'email' | 'phone' | 'emergency_name' | 'emergency_phone' | 'location' | 'manager'
+type TextKey = 'name' | 'department' | 'designation' | 'email' | 'phone' | 'emergency_name' | 'emergency_phone' | 'exit_type' | 'exit_remarks' | 'location' | 'manager'
   | 'bank_name' | 'account_no' | 'ifsc' | 'pan' | 'pf_no';
 type DateKey = 'doj' | 'dob';
 type NumKey = 'monthly_salary' | 'pf_amount' | 'tds_amount';
@@ -18,6 +19,8 @@ const ALIASES: Record<TextKey | DateKey | NumKey, string[]> = {
   phone: ['phone', 'mobile', 'contact', 'phoneno', 'mobileno', 'contactno'],
   emergency_name: ['emergencyname', 'emergencycontactname', 'emergencycontact', 'emergencyperson'],
   emergency_phone: ['emergencynumber', 'emergencyphone', 'emergencycontactnumber', 'emergencycontactno', 'emergencyphoneno', 'emergencymobile'],
+  exit_type: ['exittype', 'reasonforleaving', 'reasonofexit', 'exitreason', 'separationtype', 'leavingreason', 'resignedterminated'],
+  exit_remarks: ['exitremarks', 'exitnote', 'exitnotes', 'separationremarks'],
   location: ['location', 'branch', 'office', 'workplace'],
   manager: ['manager', 'reportingmanager', 'reportsto'],
   bank_name: ['bank', 'bankname'],
@@ -80,6 +83,7 @@ export function parseEmployees(rows: SheetRow[]): ParsedEmployees {
         if (iso) fields[key] = iso;
         else warnings.push(`Row ${idx + 2}: could not read ${key === 'doj' ? 'joining' : 'birth'} date "${String(value)}"`);
       } else if (key === 'monthly_salary' || key === 'pf_amount' || key === 'tds_amount') fields[key] = num(value);
+      else if (key === 'exit_type') fields[key] = normExitType(value);
       else fields[key] = String(value).trim();
     }
     if (!code) { skipped++; return; }

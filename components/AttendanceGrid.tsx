@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from './AppContext';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { computePay, rulesFrom, type AttendanceCounts, type Carry } from '@/lib/payroll';
-import { daysInMonth, isOffSaturday, monthLabel } from '@/lib/dates';
+import { daysInMonth, isOffSaturday, monthLabel, shiftMonth } from '@/lib/dates';
 import { inrWhole, num } from '@/lib/format';
 import type { Attendance, Employee } from '@/lib/types';
 
@@ -130,6 +130,17 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
     onSaved();
   }
 
+  /** Last month's arrears / deductions were already settled: stop bringing them forward into this month. */
+  async function clearCarry(e: Employee) {
+    const cf = carry.get(e.id);
+    if (!confirm(`Mark last month's amounts for ${e.name} as already cleared? They will no longer carry forward into ${monthLabel(month)}.`)) return;
+    const { error } = await supabaseBrowser().from('attendance').update({ carry_cleared: true })
+      .eq('employee_id', e.id).eq('month', shiftMonth(month, -1));
+    if (error) { notify(error.message, 'err'); return; }
+    notify(`Cleared${cf?.arrears ? ` ₹${cf.arrears}` : ''} brought-forward amount for ${e.name}`);
+    onSaved();
+  }
+
   const shown = emps.filter(e => !q.trim() || `${e.name} ${e.emp_code}`.toLowerCase().includes(q.trim().toLowerCase()));
   const noSalary = emps.filter(e => !Number(e.monthly_salary) && !Number(attBy.get(e.id)?.salary)).length;
 
@@ -222,6 +233,7 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
                     {cf && (cf.arrears > 0 || cf.deduction > 0) && (
                       <div className="muted" style={{ fontSize: 10 }} title="Brought forward from last month and already included in this net pay">
                         b/f {cf.arrears > 0 ? `+${inrWhole(cf.arrears)}` : ''} {cf.deduction > 0 ? `−${inrWhole(cf.deduction)}` : ''}
+                        {!readOnly && <button className="mini" style={{ marginLeft: 4 }} title="Already settled last month — stop carrying it forward" onClick={() => clearCarry(e)}>Cleared</button>}
                       </div>
                     )}
                   </td>
