@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showPw, setShowPw] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,7 +36,12 @@ export default function LoginPage() {
           <input value={username} onChange={e => setUsername(e.target.value)} autoFocus autoComplete="username" autoCapitalize="none" required />
         </label>
         <label>Password
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" required />
+          <div className="pw-field">
+            <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" required />
+            <button type="button" className="pw-eye" onClick={() => setShowPw(s => !s)} aria-label={showPw ? 'Hide password' : 'Show password'} tabIndex={-1}>
+              {showPw ? '🙈' : '👁️'}
+            </button>
+          </div>
         </label>
         {error && <p className="err" style={{ marginTop: 0 }}>{error}</p>}
         <button className="btn primary" disabled={busy}>{busy ? 'Logging in…' : 'Log in'}</button>

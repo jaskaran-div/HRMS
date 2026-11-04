@@ -48,6 +48,35 @@ create table if not exists public.settings (
 );
 insert into public.settings (id) values (1) on conflict (id) do nothing;
 
+-- Sender Email Preferences (the SMTP login itself lives in the server environment, never in the database)
+alter table public.settings add column if not exists sender_name text;
+alter table public.settings add column if not exists sender_email text not null default 'hr@derivion.in';
+alter table public.settings add column if not exists reply_to text;
+
+------------------------------------------------------------------------------
+-- Email templates (Customisations > Email Templates). No row = the built-in default text is used.
+------------------------------------------------------------------------------
+create table if not exists public.email_templates (
+  type text primary key,                    -- payslip | payslip_portal_disabled | payslip_offcycle | payslip_fnf | custom_xxxx (HR's own, e.g. a warning letter)
+  title text,                               -- name shown for custom templates
+  subject text not null,
+  body text not null,                       -- HTML with %Placeholders%
+  updated_at timestamptz not null default now(),
+  updated_by uuid default auth.uid()
+);
+alter table public.email_templates drop constraint if exists email_templates_type_check;
+alter table public.email_templates add column if not exists title text;
+alter table public.email_templates enable row level security;
+drop policy if exists email_templates_read on public.email_templates;
+create policy email_templates_read on public.email_templates for select to authenticated using (public.can_read());
+drop policy if exists email_templates_insert on public.email_templates;
+create policy email_templates_insert on public.email_templates for insert to authenticated with check (public.is_admin());
+drop policy if exists email_templates_update on public.email_templates;
+create policy email_templates_update on public.email_templates for update to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+drop policy if exists email_templates_delete on public.email_templates;
+create policy email_templates_delete on public.email_templates for delete to authenticated using (public.is_admin());
+
 ------------------------------------------------------------------------------
 -- Employees (master data)
 ------------------------------------------------------------------------------

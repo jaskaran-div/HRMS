@@ -20,6 +20,9 @@ export interface Settings {
   basic_pct: number;
   hra_pct: number;
   conveyance_pct: number;
+  sender_name: string | null;
+  sender_email: string;
+  reply_to: string | null;
 }
 
 export interface Employee {

@@ -15,13 +15,14 @@ const NAV = [
 ];
 const ADMIN_NAV = [
   { href: '/settings', icon: '⚙️', label: 'Company & Rules' },
+  { href: '/customisations', icon: '🎨', label: 'Customisations' },
   { href: '/users', icon: '🔑', label: 'User Access' },
   { href: '/activity', icon: '📜', label: 'Activity Log' },
 ];
 
 const TITLES: [string, string][] = [
   ['/employees', 'Employees'], ['/attendance', 'Attendance'], ['/payroll', 'Payroll & Payslips'], ['/import', 'Import / Export'],
-  ['/settings', 'Company & Rules'], ['/users', 'User Access'], ['/activity', 'Activity Log'],
+  ['/settings', 'Company & Rules'], ['/customisations', 'Customisations'], ['/users', 'User Access'], ['/activity', 'Activity Log'],
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {

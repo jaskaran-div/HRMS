@@ -17,8 +17,11 @@ import { downloadRelieving, openRelieving } from '@/lib/relieving-pdf';
 import { EMPLOYEE_FIELDS, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
 import { downloadPayslips, openPayslips, printPayslips, payslipFilename } from '@/lib/payslip-pdf';
 import { buildPayslip } from '@/lib/payroll';
+import { emailPayslips } from '@/lib/send-email';
+import { ComposeEmail } from '@/components/ComposeEmail';
+import { TEMPLATE_META, type EmailTemplateType } from '@/lib/email-templates';
 import { todayISO } from '@/lib/dates';
-import type { Attendance, Employee, ExitRecord, PayslipRow } from '@/lib/types';
+import type { Attendance, Employee, ExitRecord, PayslipData, PayslipRow } from '@/lib/types';
 
 type Tab = 'profile' | 'pay' | 'payslips';
 
@@ -38,6 +41,10 @@ export default function EmployeePage() {
   const [busyExit, setBusyExit] = useState(false);
   const [exitType, setExitType] = useState<string>(EXIT_TYPES[0]);
   const [editingExit, setEditingExit] = useState(false);
+  const [mailingFnf, setMailingFnf] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const [mailType, setMailType] = useState<EmailTemplateType>('payslip');
+  const [mailingKey, setMailingKey] = useState<string | null>(null);
 
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
@@ -87,6 +94,36 @@ export default function EmployeePage() {
     notify(`${emp.name} is now inactive · relieving letter + ${payslips.length} payslip${payslips.length === 1 ? '' : 's'} saved`);
     setExitOpen(false);
     reload();
+  }
+
+  /** Emails one month's payslip to this employee's own address. */
+  async function emailOne(data: PayslipData) {
+    if (!emp.email?.trim()) { notify('This employee has no email address. Add it with Edit details first.', 'err'); return; }
+    if (!confirm(`Email the ${monthLabel(data.month)} payslip to ${emp.name} (${emp.email})?`)) return;
+    setMailingKey(data.month);
+    try {
+      const res = await emailPayslips(mailType, [{ employee_id: emp.id, name: emp.name, payslips: [data] }], company);
+      if (res.failed.length) notify(`Could not send: ${res.failed[0].error}`, 'err'); else notify(`Payslip emailed to ${emp.email}`);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), 'err');
+    }
+    setMailingKey(null);
+  }
+
+  async function emailFnf() {
+    if (!exit) return;
+    if (!emp.email?.trim()) { notify('This employee has no email address. Add it with Edit details first.', 'err'); return; }
+    if (!confirm(`Email the final settlement (relieving letter + ${exit.payslips.length} payslip${exit.payslips.length === 1 ? '' : 's'}) to ${emp.email}?`)) return;
+    setMailingFnf(true);
+    try {
+      const res = await emailPayslips('payslip_fnf', [{
+        employee_id: emp.id, name: emp.name, payslips: exit.payslips, letter: exit.letter, lastWorkingDay: exit.relieved_on,
+      }], company);
+      if (res.failed.length) notify(`Could not send: ${res.failed[0].error}`, 'err'); else notify(`Final settlement emailed to ${emp.email}`);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), 'err');
+    }
+    setMailingFnf(false);
   }
 
   async function makeActive() {
@@ -146,6 +183,7 @@ export default function EmployeePage() {
               {canEdit && (
                 <div className="row" style={{ marginTop: 22 }}>
                   <button className="btn primary" onClick={() => setEditing(true)}>✏️ Edit details</button>
+                  <button className="btn" onClick={() => setComposing(true)}>✉️ Send email</button>
                   {emp.archived_at
                     ? <><button className="btn" onClick={() => setEditingExit(true)}>Edit exit details</button><button className="btn" onClick={makeActive}>Mark active</button></>
                     : <button className="btn danger" onClick={() => setExitOpen(o => !o)}>Mark inactive…</button>}
@@ -178,6 +216,7 @@ export default function EmployeePage() {
                         {exit.payslips.length > 0 && (
                           <button className="btn primary" onClick={() => downloadPayslips(exit.payslips, company, `Payslips_${exit.letter.employee.code}_last_${exit.payslip_months}_months.pdf`)}>Download payslips (PDF)</button>
                         )}
+                        {canEdit && exit.payslips.length > 0 && <button className="btn" disabled={mailingFnf} onClick={emailFnf}>{mailingFnf ? 'Sending…' : 'Email final settlement'}</button>}
                       </div>
                     </>
                   ) : <p className="muted small" style={{ margin: 0 }}>No exit documents were saved for this employee.</p>}
@@ -188,7 +227,15 @@ export default function EmployeePage() {
 
           {tab === 'pay' && (
             <>
-              {canEdit && <div className="row"><button className="btn primary" onClick={() => setAttModal({ month: null })}>+ Add / correct a month</button></div>}
+              {canEdit && (
+                <div className="row">
+                  <button className="btn primary" onClick={() => setAttModal({ month: null })}>+ Add / correct a month</button>
+                  <span className="muted small">Email payslips to {emp.email ? <b>{emp.email}</b> : <b>(no email on file)</b>} using</span>
+                  <select value={mailType} onChange={e => setMailType(e.target.value as EmailTemplateType)}>
+                    {TEMPLATE_META.filter(t => t.type !== 'payslip_fnf').map(t => <option key={t.type} value={t.type}>{t.title}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="tbl-wrap">
                 <table>
                   <thead><tr><th>Month</th><th className="n">Present</th><th className="n">Half</th><th className="n">Absent</th><th className="n">Leave</th><th className="n">Week off</th>
@@ -205,7 +252,7 @@ export default function EmployeePage() {
                           <td className="n">{p.paidDays}</td><td className="n">{p.lopDays}</td>
                           <td className="n">{inr(p.gross)}</td><td className="n"><b>{inr(p.net)}</b></td>
                           <td style={{ textAlign: 'right' }}>
-                            {(() => { const d = buildPayslip(emp, a, rules, todayISO(), cf); return (<><button className="btn sm" onClick={() => openPayslips([d], company)}>Payslip</button>{' '}<button className="btn sm" onClick={() => printPayslips([d], company)}>Print</button>{' '}<button className="btn sm" onClick={() => downloadPayslips([d], company, payslipFilename(d))}>PDF</button>{' '}</>); })()}
+                            {(() => { const d = buildPayslip(emp, a, rules, todayISO(), cf); return (<><button className="btn sm" onClick={() => openPayslips([d], company)}>Payslip</button>{' '}<button className="btn sm" onClick={() => printPayslips([d], company)}>Print</button>{' '}<button className="btn sm" onClick={() => downloadPayslips([d], company, payslipFilename(d))}>PDF</button>{' '}{canEdit && <><button className="btn sm" disabled={!!mailingKey} onClick={() => emailOne(d)}>{mailingKey === d.month ? 'Sending…' : 'Email'}</button>{' '}</>}</>); })()}
                             {canEdit && <button className="btn sm" onClick={() => setAttModal({ month: a.month, existing: a })}>Edit</button>}{' '}
                             {isAdmin && <button className="btn sm danger" onClick={() => deleteMonth(a)}>Delete</button>}
                           </td>
@@ -234,7 +281,7 @@ export default function EmployeePage() {
                         <td style={{ textAlign: 'right' }}>
                           <button className="btn sm" onClick={() => openPayslips([s.data], company)}>View</button>{' '}
                           <button className="btn sm" onClick={() => printPayslips([s.data], company)}>Print</button>{' '}
-                          <button className="btn sm primary" onClick={() => downloadPayslips([s.data], company, payslipFilename(s.data))}>Download PDF</button>
+                          <button className="btn sm primary" onClick={() => downloadPayslips([s.data], company, payslipFilename(s.data))}>Download PDF</button>{canEdit && <>{' '}<button className="btn sm" disabled={!!mailingKey} onClick={() => emailOne(s.data)}>{mailingKey === s.data.month ? 'Sending…' : 'Email'}</button></>}
                         </td>
                       </tr>
                     ))}
@@ -267,6 +314,12 @@ export default function EmployeePage() {
       {attModal && (
         <AttendanceModal emp={emp} month={attModal.month} existing={attModal.existing}
           onClose={() => setAttModal(null)} onSaved={reload} />
+      )}
+      {composing && (
+        <ComposeEmail
+          emp={emp} company={company} onClose={() => setComposing(false)}
+          payslips={att.map(a => buildPayslip(emp, a, rules, todayISO(), carryOf(a)))}
+        />
       )}
       {editingExit && (
         <FormModal

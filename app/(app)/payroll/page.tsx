@@ -11,6 +11,8 @@ import { loadCarry } from '@/lib/carry';
 import { currentYM, fmtDate, monthLabel, monthStart, shiftMonth, todayISO } from '@/lib/dates';
 import { inr, inrWhole } from '@/lib/format';
 import { downloadPayslips, openPayslips, printPayslips, payslipFilename } from '@/lib/payslip-pdf';
+import { emailPayslips } from '@/lib/send-email';
+import { TEMPLATE_META, type EmailTemplateType } from '@/lib/email-templates';
 import type { PayslipData } from '@/lib/types';
 import type { Attendance, Employee, PayslipRow } from '@/lib/types';
 
@@ -24,6 +26,8 @@ export default function PayrollPage() {
   const month = monthStart(ym);
   const [payDate, setPayDate] = useState(todayISO());
   const [busy, setBusy] = useState(false);
+  const [mailType, setMailType] = useState<EmailTemplateType>('payslip');
+  const [mailing, setMailing] = useState<string | null>(null);
 
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
@@ -101,6 +105,29 @@ export default function PayrollPage() {
     await downloadPayslips(slips.map(s => s.data), company, `Payslips_${monthLabel(month, false).replace(' ', '_')}.pdf`);
   }
 
+  const mailable = (r: (typeof rows)[number]) => !!r.slip && !!r.emp.email?.trim();
+
+  /** Emails the saved payslip(s). `only` = one employee, otherwise every employee with a generated payslip this month. */
+  async function sendMail(only?: (typeof rows)[number]) {
+    const targets = only ? [only] : rows.filter(mailable);
+    const noEmail = only ? 0 : rows.filter(r => r.slip && !r.emp.email?.trim()).length;
+    if (!targets.length) { notify('Nobody here has a generated payslip and an email address.', 'err'); return; }
+    const title = TEMPLATE_META.find(t => t.type === mailType)!.title;
+    if (!confirm(`Email the ${monthLabel(month)} payslip to ${targets.length === 1 ? targets[0].emp.name : `${targets.length} employees`} using "${title}"?${noEmail ? `
+
+${noEmail} employee(s) have no email address and will be skipped.` : ''}`)) return;
+    setMailing(only ? only.emp.id : 'all');
+    try {
+      const res = await emailPayslips(mailType, targets.map(r => ({ employee_id: r.emp.id, name: r.emp.name, payslips: [r.slip!.data] })), company);
+      if (res.failed.length) {
+        notify(`Sent ${res.sent}, failed ${res.failed.length}: ${res.failed.slice(0, 2).map(f => `${f.name} (${f.error})`).join('; ')}${res.failed.length > 2 ? '…' : ''}`, 'err');
+      } else notify(`Emailed ${res.sent} payslip${res.sent === 1 ? '' : 's'}`);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), 'err');
+    }
+    setMailing(null);
+  }
+
   const badge = (s: (typeof rows)[number]['status']) => ({
     noatt: <span className="pill warn">No attendance</span>,
     nosalary: <span className="pill warn">No salary set</span>,
@@ -134,6 +161,14 @@ export default function PayrollPage() {
             <button className="btn primary" disabled={busy || !ready.length || !payDate || !inWindow} onClick={generate}>
               {busy ? 'Generating…' : todo ? `Generate ${todo} payslip${todo > 1 ? 's' : ''} for ${monthLabel(month)}` : `Regenerate payslips for ${monthLabel(month)}`}
             </button>
+            {data && data.slips.length > 0 && (
+              <>
+                <select value={mailType} onChange={e => setMailType(e.target.value as EmailTemplateType)} aria-label="Email template">
+                  {TEMPLATE_META.filter(t => t.type !== 'payslip_fnf').map(t => <option key={t.type} value={t.type}>{t.title}</option>)}
+                </select>
+                <button className="btn" disabled={!!mailing} onClick={() => sendMail()}>{mailing === 'all' ? 'Sending…' : 'Email all payslips'}</button>
+              </>
+            )}
             {!inWindow && <span className="err small">Only the latest {KEEP_MONTHS} months are kept, so {monthLabel(month)} can no longer be generated.</span>}
             {rows.some(r => r.status === 'noatt') && <span className="muted small">Employees without attendance are skipped — <Link href="/attendance">add attendance</Link>.</span>}
           </div>
@@ -161,6 +196,7 @@ export default function PayrollPage() {
                           <button className="btn sm" onClick={() => openPayslips([d], company)}>View</button>{' '}
                           <button className="btn sm" onClick={() => printPayslips([d], company)}>Print</button>{' '}
                           <button className="btn sm" onClick={() => downloadPayslips([d], company, payslipFilename(d))}>PDF</button>
+                          {canEdit && r.slip && <> <button className="btn sm" disabled={!!mailing || !mailable(r)} title={r.emp.email ? `Email to ${r.emp.email}` : 'No email address on file'} onClick={() => sendMail(r)}>{mailing === r.emp.id ? 'Sending…' : 'Email'}</button></>}
                           {canEdit && inWindow && (r.status === 'new' || r.status === 'stale') && (
                             <> <button className="btn sm primary" onClick={() => saveOne(r)}>{r.status === 'stale' ? 'Regenerate' : 'Generate'}</button></>
                           )}
