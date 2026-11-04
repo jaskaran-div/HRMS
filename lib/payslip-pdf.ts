@@ -48,10 +48,10 @@ function slip(p: PayslipData, c: PayslipCompany): Content[] {
   return [
     {
       columns: [
-        c.logo ? { image: c.logo, width: 62, margin: [0, 0, 12, 0] } : { text: '', width: 0 },
         {
           width: '*',
           stack: [
+            ...(c.logo ? [{ image: c.logo, fit: [170, 54] as [number, number], margin: [0, 0, 0, 8] as [number, number, number, number] }] : []),
             { text: c.name, bold: true, fontSize: 16 },
             { text: c.address, fontSize: 8.5, color: GREY, margin: [0, 3, 0, 0] },
           ],
