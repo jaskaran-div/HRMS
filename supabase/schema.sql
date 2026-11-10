@@ -453,3 +453,8 @@ alter table public.attendance add column if not exists short_leave_days numeric(
 alter table public.leave_requests add column if not exists requested_type text check (requested_type in ('short', 'paid', 'unpaid'));
 alter table public.leave_requests add column if not exists over_quota boolean not null default false;
 update public.leave_requests set requested_type = leave_type where requested_type is null;
+
+------------------------------------------------------------------------------
+-- Where account emails (login details, password resets) go. Empty = the linked employee's email.
+------------------------------------------------------------------------------
+alter table public.profiles add column if not exists email text;

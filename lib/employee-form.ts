@@ -7,7 +7,7 @@ export const EMPLOYEE_FIELDS: Field[] = [
   { key: 'name', label: 'Full name', required: true },
   { key: 'department', label: 'Department' },
   { key: 'designation', label: 'Designation' },
-  { key: 'email', label: 'Email', type: 'email' },
+  { key: 'email', label: 'Official email', type: 'email' },
   { key: 'phone', label: 'Phone' },
   { key: 'emergency_name', label: 'Emergency contact name' },
   { key: 'emergency_phone', label: 'Emergency contact number' },

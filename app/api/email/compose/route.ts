@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { mailConfigured, mailTransport, senderOf } from '@/lib/mailer';
+import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from '@/lib/mailer';
 import { baseVars, fillTemplate, htmlToText, wrapEmail } from '@/lib/email-templates';
 import type { Settings } from '@/lib/types';
 
@@ -37,6 +37,7 @@ export async function POST(req: Request) {
   if (!emp) return NextResponse.json({ error: 'Employee not found.' }, { status: 404 });
   const to = (emp.email ?? '').trim();
   if (!EMAIL.test(to)) return NextResponse.json({ error: 'This employee has no valid email address on file.' }, { status: 400 });
+  if (!isOfficial(to, settings as Settings)) return NextResponse.json({ error: `${to}: ${notOfficialMsg(settings as Settings)}` }, { status: 400 });
 
   const files = (b.attachments ?? []).filter(a => a.filename && a.base64);
   const attachments = files.map(a => ({

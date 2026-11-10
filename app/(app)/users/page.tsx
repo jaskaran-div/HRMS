@@ -22,27 +22,30 @@ const ROLE_HELP: Record<Role, string> = {
 };
 const needsEmp = (r: Role) => r === 'team_lead' || r === 'employee';
 
-type Emp = Pick<Employee, 'id' | 'emp_code' | 'name' | 'archived_at'>;
+type Emp = Pick<Employee, 'id' | 'emp_code' | 'name' | 'archived_at' | 'email'>;
+type Mail = { ok: true; to: string[] } | { ok: false; error: string } | null;
 
 export default function UsersPage() {
-  const { profile, isAdmin, notify } = useApp();
+  const { profile, isAdmin, notify, mailReady } = useApp();
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [touched, setTouched] = useState(false);
   const [role, setRole] = useState<Role>('employee');
   const [empId, setEmpId] = useState('');
   const [mustChange, setMustChange] = useState(true);
+  const [email, setEmail] = useState('');
+  const [sendMail, setSendMail] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [cred, setCred] = useState<{ username: string; password: string; what: string } | null>(null);
+  const [cred, setCred] = useState<{ username: string; password: string; what: string; mail?: Mail } | null>(null);
   const [pwFor, setPwFor] = useState<Profile | null>(null);
-  const [bulk, setBulk] = useState<{ done: number; total: number; made: { name: string; username: string; password: string }[]; failed: string[] } | null>(null);
+  const [bulk, setBulk] = useState<{ done: number; total: number; made: { name: string; username: string; password: string; emailed: boolean }[]; failed: string[] } | null>(null);
   const [q, setQ] = useState('');
 
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
     const [users, emps] = await Promise.all([
       sb.from('profiles').select('*').order('created_at'),
-      fetchAll<Emp>((a, b) => sb.from('employees').select('id, emp_code, name, archived_at').order('emp_code').range(a, b)),
+      fetchAll<Emp>((a, b) => sb.from('employees').select('id, emp_code, name, archived_at, email').order('emp_code').range(a, b)),
     ]);
     if (users.error) throw new Error(users.error.message);
     return { users: users.data as Profile[], emps };
@@ -68,46 +71,55 @@ export default function UsersPage() {
     return json;
   }
 
+  /** Toast for what happened to the email that went with an action. */
+  function mailNote(m: Mail | undefined, done: string) {
+    if (!m) notify(done);
+    else if (m.ok) notify(`${done} — details emailed to ${m.to.join(', ')}`);
+    else notify(`${done}, but the email was not sent: ${m.error}`, 'err');
+  }
+
   function pickEmployee(id: string) {
     setEmpId(id);
     const e = empBy.get(id);
-    if (e) { setFullName(e.name); if (!touched) setUsername(cleanUsername(e.emp_code)); }
+    if (e) { setFullName(e.name); if (!touched) setUsername(cleanUsername(e.emp_code)); setEmail(''); }
   }
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
     if (needsEmp(role) && !empId) { notify('Pick the employee this login belongs to.', 'err'); return; }
     setBusy(true);
-    const r = await call('POST', { full_name: fullName, username, role, must_change_password: mustChange, employee_id: empId || null });
+    const r = await call('POST', { full_name: fullName, username, role, must_change_password: mustChange, employee_id: empId || null, email: email.trim() || null, send_email: sendMail && mailReady });
     setBusy(false);
     if (r.error) return;
-    setCred({ username: r.username, password: r.password, what: 'New login created' });
-    setFullName(''); setUsername(''); setTouched(false); setEmpId('');
+    setCred({ username: r.username, password: r.password, what: 'New login created', mail: r.mail });
+    mailNote(r.mail, 'Login created');
+    setFullName(''); setUsername(''); setTouched(false); setEmpId(''); setEmail('');
     reload();
   }
 
   /** One employee login per active employee that has none: username = employee ID in lowercase. */
   async function createAll() {
     if (!unlinkedActive.length) return;
-    if (!confirm(`Create an Employee login for ${unlinkedActive.length} employee(s) who have none?\n\nUsername = their employee ID in lowercase (e.g. isftd0007), password = the default pattern (e.g. Isftd0007@isft). They must choose their own password at first login.`)) return;
-    const made: { name: string; username: string; password: string }[] = [];
+    if (!confirm(`Create an Employee login for ${unlinkedActive.length} employee(s) who have none?\n\nUsername = their employee ID in lowercase (e.g. isftd0007), password = the default pattern (e.g. Isftd0007@isft). They must choose their own password at first login.${mailReady && sendMail ? '\n\nEach person with an email address on their employee record gets their login details by email.' : ''}`)) return;
+    const made: { name: string; username: string; password: string; emailed: boolean }[] = [];
     const failed: string[] = [];
     setBulk({ done: 0, total: unlinkedActive.length, made, failed });
     for (const [i, e] of unlinkedActive.entries()) {
-      const r = await call('POST', { full_name: e.name, username: cleanUsername(e.emp_code), role: 'employee', must_change_password: true, employee_id: e.id }, true);
-      if (r.error) failed.push(`${e.name} (${e.emp_code}): ${r.error}`); else made.push({ name: e.name, username: r.username, password: r.password });
+      const r = await call('POST', { full_name: e.name, username: cleanUsername(e.emp_code), role: 'employee', must_change_password: true, employee_id: e.id, send_email: sendMail && mailReady }, true);
+      if (r.error) failed.push(`${e.name} (${e.emp_code}): ${r.error}`); else made.push({ name: e.name, username: r.username, password: r.password, emailed: !!r.mail?.ok });
       setBulk({ done: i + 1, total: unlinkedActive.length, made: [...made], failed: [...failed] });
     }
     reload();
   }
 
   async function act(u: Profile, action: string, extra: object = {}) {
-    if (action === 'reset_password' && !confirm(`Reset ${u.full_name}'s password to the default (${defaultPassword(u.username)})? They will have to choose a new one at next login.`)) return;
+    if (action === 'reset_password' && !confirm(`Reset ${u.full_name}'s password to the default (${defaultPassword(u.username)})? They will have to choose a new one at next login.${mailReady ? ' The new password is emailed to them.' : ''}`)) return;
     if (action === 'deactivate' && !confirm(`Disable ${u.full_name}'s login? They will be logged out and cannot sign in until you enable it again.`)) return;
     const r = await call('PATCH', { id: u.id, action, ...extra });
     if (r.error) { reload(); return; }
-    if (r.password) setCred({ username: r.username, password: r.password, what: 'Password changed' });
-    else notify('Done');
+    if (r.password) { setCred({ username: r.username, password: r.password, what: 'Password changed', mail: r.mail }); mailNote(r.mail, 'Password changed'); }
+    else if (action === 'activate' || action === 'deactivate') mailNote(r.mail?.ok ? r.mail : null, action === 'activate' ? 'Login enabled' : 'Login disabled');
+    else notify('Saved');
     reload();
   }
 
@@ -136,6 +148,11 @@ export default function UsersPage() {
             <label>Full name
               <input value={fullName} required placeholder="Jaskaran Singh" onChange={e => { setFullName(e.target.value); if (!touched) setUsername(suggestUsername(e.target.value)); }} />
             </label>
+            <label>Official email for login details{needsEmp(role) && empId ? ' (optional)' : ''}
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder={empBy.get(empId)?.email || (needsEmp(role) ? 'Uses the employee’s email' : 'name@company.com')} />
+              <span className="hint">{empBy.get(empId)?.email && !email.trim() ? `Will go to ${empBy.get(empId)?.email}` : 'Username, password and the login link are sent here'}</span>
+            </label>
             <label>Username
               <input value={username} required onChange={e => { setUsername(cleanUsername(e.target.value)); setTouched(true); }} />
               <span className="hint">Lowercase letters and digits</span>
@@ -147,11 +164,15 @@ export default function UsersPage() {
             <label className="small muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input type="checkbox" checked={mustChange} onChange={e => setMustChange(e.target.checked)} /> Ask them to choose their own password at first login
             </label>
+            <label className="small muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }} title={mailReady ? '' : 'Email is not set up on the server (SMTP settings)'}>
+              <input type="checkbox" checked={sendMail && mailReady} disabled={!mailReady} onChange={e => setSendMail(e.target.checked)} /> Email the login details to them{!mailReady && ' (email not set up)'}
+            </label>
           </div>
         </form>
         {cred && (
           <div className="cred">
-            <b>{cred.what}.</b> Share these details with them:<br />
+            <b>{cred.what}.</b> {cred.mail?.ok ? <>Emailed to <b>{cred.mail.to.join(', ')}</b>. You can also share them:</> : 'Share these details with them:'}<br />
+            {cred.mail && !cred.mail.ok && <span className="err small">Email not sent: {cred.mail.error}<br /></span>}
             Username: <b>{cred.username}</b><br />Password: <b>{cred.password}</b>
             <div style={{ marginTop: 8 }}>
               <button className="btn sm" onClick={() => navigator.clipboard?.writeText(`Username: ${cred.username}\nPassword: ${cred.password}`).then(() => notify('Copied'))}>Copy</button>{' '}
@@ -168,7 +189,7 @@ export default function UsersPage() {
         {bulk && bulk.done === bulk.total && (bulk.made.length > 0 || bulk.failed.length > 0) && (
           <div className="cred">
             {bulk.made.length > 0 && <>
-              <b>New logins</b> (copy and share; each person must set their own password at first login)
+              <b>New logins</b> — {bulk.made.filter(m => m.emailed).length} emailed{bulk.made.some(m => !m.emailed) ? `; ${bulk.made.filter(m => !m.emailed).length} have no email on file — copy and share those` : ''}. Each person must set their own password at first login.
               <div style={{ marginTop: 8 }}>
                 <button className="btn sm" onClick={() => navigator.clipboard?.writeText(bulk.made.map(m => `${m.name}\tUsername: ${m.username}\tPassword: ${m.password}`).join('\n')).then(() => notify('Copied'))}>Copy all</button>{' '}
                 <button className="btn sm" onClick={() => setBulk(null)}>Hide</button>
@@ -195,7 +216,7 @@ export default function UsersPage() {
                 return (
                   <tr key={u.id}>
                     <td><b>{u.full_name}</b>{me && <span className="muted small"> (you)</span>}</td>
-                    <td>{u.username}</td>
+                    <td>{u.username}<EmailCell u={u} fallback={u.employee_id ? empBy.get(u.employee_id)?.email ?? null : null} onSave={email => act(u, 'set_email', { email })} /></td>
                     <td>
                       <select value={u.role} disabled={me} onChange={e => act(u, 'set_role', { role: e.target.value })}>
                         {ROLES.map(r => <option key={r} value={r}>{ROLE_NAME[r]}</option>)}
@@ -226,14 +247,28 @@ export default function UsersPage() {
       </div>
 
       {pwFor && <SetPassword user={pwFor} self={pwFor.id === profile.id} onClose={() => setPwFor(null)}
-        onSave={async (password, must) => { await act(pwFor, 'set_password', { password, must_change_password: must }); setPwFor(null); }} />}
+        onSave={async (password, must, mail) => { await act(pwFor, 'set_password', { password, must_change_password: must, send_email: mail }); setPwFor(null); }} />}
     </>
   );
 }
 
+function EmailCell({ u, fallback, onSave }: { u: Profile; fallback: string | null; onSave: (email: string | null) => void }) {
+  const shown = u.email || fallback;
+  return (
+    <div className="muted small">
+      <a href="#" style={{ color: 'inherit' }} title={u.email ? 'Email for login details (click to change)' : fallback ? 'From the employee record (click to set a different one)' : 'Click to add an email for login details'}
+        onClick={e => { e.preventDefault(); const v = prompt('Email for login details and password emails (leave empty to use the employee record):', u.email ?? ''); if (v !== null) onSave(v.trim() || null); }}>
+        {shown || '+ add email'}
+      </a>
+    </div>
+  );
+}
+
 function SetPassword({ user, self, onClose, onSave }: {
-  user: Profile; self: boolean; onClose: () => void; onSave: (password: string, mustChange: boolean) => Promise<void>;
+  user: Profile; self: boolean; onClose: () => void; onSave: (password: string, mustChange: boolean, mail: boolean) => Promise<void>;
 }) {
+  const { mailReady } = useApp();
+  const [mail, setMail] = useState(true);
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
   const [must, setMust] = useState(!self);
@@ -245,7 +280,7 @@ function SetPassword({ user, self, onClose, onSave }: {
   };
   return (
     <Modal title={`Set password — ${user.full_name}`} onClose={onClose}>
-      <form onSubmit={async e => { e.preventDefault(); setBusy(true); await onSave(pw.trim(), must); setBusy(false); }}>
+      <form onSubmit={async e => { e.preventDefault(); setBusy(true); await onSave(pw.trim(), must, mail && mailReady && !self); setBusy(false); }}>
         <div className="mgrid" style={{ gridTemplateColumns: '1fr' }}>
           <label>New password
             <div className="pw-field">
@@ -257,6 +292,11 @@ function SetPassword({ user, self, onClose, onSave }: {
           {!self && (
             <label className="small muted" style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
               <input type="checkbox" checked={must} onChange={e => setMust(e.target.checked)} /> Ask them to choose their own password after logging in with this one
+            </label>
+          )}
+          {!self && mailReady && (
+            <label className="small muted" style={{ display: 'flex', flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={mail} onChange={e => setMail(e.target.checked)} /> Email the new password to them
             </label>
           )}
         </div>

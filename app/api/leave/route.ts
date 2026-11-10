@@ -3,7 +3,8 @@ import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { teamIds } from '@/lib/portal';
 import { overallStatus, validateLeave, type LeaveInput } from '@/lib/leave';
-import { emailLeaveDecision, emailLeaveRequest } from '@/lib/leave-mail';
+import { emailLeaveCancelled, emailLeaveDecision, emailLeaveRequest, emailLeaveStep } from '@/lib/leave-mail';
+import { appUrl } from '@/lib/notify-mail';
 import { todayISO } from '@/lib/dates';
 import type { LeaveRequest, Profile, Settings } from '@/lib/types';
 
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
   await log(g.profile, 'APPLY_LEAVE', row.id, { type: input.leave_type, from: input.start_date, to: input.end_date, days: v.days, over_quota: v.overQuota });
 
   let mail: { ok: boolean; to?: string[]; error?: string } | null = null;
-  if (b.email !== false) mail = await emailLeaveRequest(row as LeaveRequest, new URL(req.url).origin);
+  if (b.email !== false) mail = await emailLeaveRequest(row as LeaveRequest, appUrl(req));
   return NextResponse.json({ leave: row, mail });
 }
 
@@ -83,11 +84,12 @@ export async function PATCH(req: Request) {
     if (!own) return NextResponse.json({ error: 'Only the employee can do this.' }, { status: 403 });
     if (l.status !== 'pending') return NextResponse.json({ error: 'Only pending requests can be changed.' }, { status: 400 });
     if (b.action === 'email') {
-      const mail = await emailLeaveRequest(l, new URL(req.url).origin);
+      const mail = await emailLeaveRequest(l, appUrl(req));
       return mail.ok ? NextResponse.json({ ok: true, to: mail.to }) : NextResponse.json({ error: mail.error }, { status: 502 });
     }
     await admin.from('leave_requests').update({ status: 'cancelled' }).eq('id', l.id);
     await log(g.profile, 'CANCEL_LEAVE', l.id, {});
+    await emailLeaveCancelled(l);
     return NextResponse.json({ ok: true });
   }
 
@@ -119,5 +121,6 @@ export async function PATCH(req: Request) {
   await log(g.profile, `${step.toUpperCase()}_${decision === 'approved' ? 'APPROVE' : 'REJECT'}_LEAVE`, l.id, { employee_id: l.employee_id, status, ...(countAs ? { counted_as: countAs } : {}) });
   // the employee hears about it once the overall outcome is known (or changes)
   if (status !== l.status && status !== 'pending') await emailLeaveDecision(updated as LeaveRequest);
+  else if (status === 'pending') await emailLeaveStep(updated as LeaveRequest, step, appUrl(req)); // tell whoever decides next
   return NextResponse.json({ ok: true, leave: updated, step });
 }

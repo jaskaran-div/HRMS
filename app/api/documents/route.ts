@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { DRIVE_NOT_SET, driveConfigured, driveTrash, driveUpload } from '@/lib/drive';
+import { appUrl, emailCompanyDocument, emailDocumentShared, type MailResult } from '@/lib/notify-mail';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -23,6 +24,7 @@ export async function POST(req: Request) {
   const category = String(form.get('category') ?? '').trim().slice(0, 80) || null;
   const employeeId = String(form.get('employee_id') ?? '').trim() || null;
   const visible = String(form.get('visible') ?? '1') !== '0';
+  const notifyOn = String(form.get('notify') ?? '1') !== '0';
 
   const admin = supabaseAdmin();
   let sub = 'Company documents';
@@ -46,5 +48,9 @@ export async function POST(req: Request) {
     await driveTrash(driveId).catch(() => {});
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ document: row });
+  let mail: MailResult | null = null;
+  if (visible && notifyOn) mail = employeeId
+    ? await emailDocumentShared(employeeId, title, category, appUrl(req))
+    : await emailCompanyDocument(title, category, appUrl(req));
+  return NextResponse.json({ document: row, mail });
 }

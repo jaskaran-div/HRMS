@@ -21,7 +21,7 @@ function below(id: string, kids: Map<string, Emp[]>): Set<string> {
 }
 
 export default function TeamsPage() {
-  const { canEdit, isAdmin, notify } = useApp();
+  const { canEdit, isAdmin, notify, mailReady } = useApp();
   const [dept, setDept] = useState('');
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -67,6 +67,9 @@ export default function TeamsPage() {
       notify(`${l?.name} needs a "Team leader" login (User Access) to see their team.`, 'err');
     setPicked(new Set());
     reload();
+    // tell the people moved (and their new leader) by email; quiet if email is not set up
+    if (mailReady) fetch('/api/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'team', employee_ids: ids, lead_id: lead }) })
+      .then(r => r.json()).then(j => { if (j.sent) notify(`Email sent to ${j.sent} ${j.sent === 1 ? 'person' : 'people'} about the change`, 'info'); }).catch(() => {});
   }
 
   const allShown = list.length > 0 && list.every(e => picked.has(e.id));

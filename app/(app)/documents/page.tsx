@@ -15,11 +15,12 @@ const CATEGORIES = ['Terms & conditions', 'Policy', 'Offer letter', 'Appointment
 const MAX = 4 * 1024 * 1024;
 
 export default function DocumentsPage() {
-  const { canEdit, driveReady, notify } = useApp();
+  const { canEdit, driveReady, notify, mailReady } = useApp();
   const [owner, setOwner] = useState(''); // '' = company documents, else employee id
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
   const [visible, setVisible] = useState(true);
+  const [tell, setTell] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -46,12 +47,13 @@ export default function DocumentsPage() {
     setBusy(true);
     const fd = new FormData();
     fd.set('file', file); fd.set('title', title || file.name.replace(/\.[^.]+$/, '')); fd.set('category', category);
-    fd.set('employee_id', owner); fd.set('visible', visible ? '1' : '0');
+    fd.set('employee_id', owner); fd.set('visible', visible ? '1' : '0'); fd.set('notify', tell && mailReady ? '1' : '0');
     const res = await fetch('/api/documents', { method: 'POST', body: fd });
     const j = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) { notify(j.error ?? `Upload failed (${res.status})`, 'err'); return; }
-    notify('Uploaded');
+    if (j.mail && !j.mail.ok) notify(`Uploaded, but the email was not sent: ${j.mail.error}`, 'err');
+    else notify(j.mail?.ok ? `Uploaded and emailed to ${j.mail.to.length === 1 ? j.mail.to[0] : `${j.mail.to.length} people`}` : 'Uploaded');
     setTitle(''); setFile(null); if (fileRef.current) fileRef.current.value = '';
     reload();
   }
@@ -103,6 +105,11 @@ export default function DocumentsPage() {
               {who && (
                 <label className="small muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <input type="checkbox" checked={visible} onChange={e => setVisible(e.target.checked)} /> {who.name} can see it in their account
+                </label>
+              )}
+              {mailReady && (who ? visible : true) && (
+                <label className="small muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input type="checkbox" checked={tell} onChange={e => setTell(e.target.checked)} /> {who ? `Email ${who.name.split(' ')[0]} about it` : 'Email all employees about it'}
                 </label>
               )}
             </div>

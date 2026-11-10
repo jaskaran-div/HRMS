@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { mailConfigured, mailTransport, senderOf } from '@/lib/mailer';
+import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from '@/lib/mailer';
 import {
   baseVars, DEFAULT_TEMPLATES, fillTemplate, htmlToText, TEMPLATE_TYPES, wrapEmail, type EmailTemplateType,
 } from '@/lib/email-templates';
@@ -52,6 +52,7 @@ export async function POST(req: Request) {
     if (!emp) { results.push({ employee_id: id, ok: false, error: 'Employee not found' }); continue; }
     const to = (emp.email ?? '').trim();
     if (!EMAIL.test(to)) { results.push({ employee_id: id, ok: false, error: 'No valid email address on file' }); continue; }
+    if (!isOfficial(to, s)) { results.push({ employee_id: id, ok: false, error: notOfficialMsg(s) }); continue; }
     const attachments = (it.attachments ?? []).filter(a => a.filename && a.base64)
       .map(a => ({ filename: a.filename!.replace(/[^\w.\- ]/g, '_'), content: Buffer.from(a.base64!, 'base64'), contentType: 'application/pdf' }));
     if (!attachments.length) { results.push({ employee_id: id, ok: false, error: 'Nothing to attach' }); continue; }

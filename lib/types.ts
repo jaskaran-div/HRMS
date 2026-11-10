@@ -13,6 +13,8 @@ export interface Profile {
   active: boolean;
   must_change_password: boolean;
   employee_id: string | null;
+  /** where login details / password emails go; null = the linked employee's email */
+  email?: string | null;
   created_at: string;
 }
 

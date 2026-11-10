@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { defaultPassword } from '@/lib/username';
+import { appUrl, emailPasswordChanged } from '@/lib/notify-mail';
 
 export async function POST(req: Request) {
   const g = await guard();
@@ -22,5 +23,6 @@ export async function POST(req: Request) {
   await admin.from('audit_log').insert({
     user_id: g.user.id, username: g.profile.username, table_name: 'users', op: 'PASSWORD_CHANGED', row_id: g.user.id,
   });
+  await emailPasswordChanged(g.profile, appUrl(req)); // security notice; best effort
   return NextResponse.json({ ok: true });
 }

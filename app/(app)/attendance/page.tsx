@@ -34,6 +34,7 @@ export default function AttendancePage() {
   const dim = daysInMonth(y, m);
 
   const [mode, setMode] = useState<'enter' | 'upload'>('enter');
+  const [show, setShow] = useState<'active' | 'inactive'>('active'); // inactive = former employees, for the record
   const [parsed, setParsed] = useState<ParsedAttendance | null>(null);
   const [assign, setAssign] = useState<string[]>([]);
   const [fileName, setFileName] = useState('');
@@ -44,15 +45,20 @@ export default function AttendancePage() {
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
     const [emps, att, leaves] = await Promise.all([
-      fetchAll<Employee>((a, b) => sb.from('employees').select('*').is('archived_at', null).order('emp_code').range(a, b)),
+      fetchAll<Employee>((a, b) => (show === 'inactive'
+        ? sb.from('employees').select('*').not('archived_at', 'is', null)
+        : sb.from('employees').select('*').is('archived_at', null)).order('emp_code').range(a, b)),
       fetchAll<Attendance>((a, b) => sb.from('attendance').select('*').eq('month', month).range(a, b)),
       // fully approved leave overlapping this month (shown on the grid)
       fetchAll<ApprovedLeave>((a, b) => sb.from('leave_requests').select('employee_id, leave_type, start_date, end_date')
         .eq('status', 'approved').lt('start_date', shiftMonth(month, 1)).gte('end_date', month).range(a, b)).catch(() => [] as ApprovedLeave[]),
     ]);
-    const carry = await loadCarry(sb, month, emps, rules);
-    return { month, emps, att, carry, leaves };
-  }, [month]);
+    // inactive view: only people who have attendance for this month (their record), not everyone who ever left
+    const shownEmps = show === 'inactive' ? emps.filter(e => att.some(a => a.employee_id === e.id)) : emps;
+    const ids = new Set(shownEmps.map(e => e.id));
+    const carry = await loadCarry(sb, month, shownEmps, rules);
+    return { month, show, emps: shownEmps, att: att.filter(a => ids.has(a.employee_id)), carry, leaves: leaves.filter(l => ids.has(l.employee_id)) };
+  }, [month, show]);
   const emps = data?.emps ?? [];
   const attByEmp = useMemo(() => new Map((data?.att ?? []).map(a => [a.employee_id, a])), [data]);
   const empById = useMemo(() => new Map(emps.map(e => [e.id, e])), [emps]);
@@ -126,18 +132,27 @@ export default function AttendancePage() {
     <>
       <div className="page-h">
         <input type="month" value={ym} onChange={e => { setYm(e.target.value || ym); setParsed(null); }} />
-        {canEdit && (
+        <div className="seg" role="tablist" aria-label="Which employees">
+          <button className={show === 'active' ? 'on' : ''} onClick={() => setShow('active')}>Active</button>
+          <button className={show === 'inactive' ? 'on' : ''} onClick={() => { setShow('inactive'); setMode('enter'); setParsed(null); }}>Inactive</button>
+        </div>
+        {canEdit && show === 'active' && (
           <div className="seg">
             <button className={mode === 'enter' ? 'on' : ''} onClick={() => setMode('enter')}>Enter in app</button>
             <button className={mode === 'upload' ? 'on' : ''} onClick={() => setMode('upload')}>Upload a sheet (optional)</button>
           </div>
         )}
-        <span className="muted">{loading ? 'Loading…' : `${(data?.att.length ?? 0)} of ${emps.length} employees have attendance for ${monthLabel(month)}`}</span>
+        <span className="muted">{loading ? 'Loading…' : show === 'inactive'
+          ? `${emps.length} inactive employee(s) have attendance for ${monthLabel(month)}`
+          : `${(data?.att.length ?? 0)} of ${emps.length} employees have attendance for ${monthLabel(month)}`}</span>
       </div>
+      {show === 'inactive' && <div className="note" style={{ marginBottom: 12 }}>Showing <b>inactive (former) employees</b> only — their attendance for the record. You can still correct it here; changes are saved like any other attendance.</div>}
       {error && <ErrorBox message={error} onRetry={reload} />}
 
-      {mode === 'enter' && (data && data.month === month
-        ? <AttendanceGrid month={month} emps={data.emps} att={data.att} carry={data.carry} leaves={data.leaves} readOnly={!canEdit} onSaved={reload} />
+      {mode === 'enter' && (data && data.month === month && data.show === show
+        ? show === 'inactive' && !data.emps.length
+          ? <div className="card"><p className="muted" style={{ margin: 0 }}>No inactive employee has attendance for {monthLabel(month)}. Pick another month above.</p></div>
+          : <AttendanceGrid month={month} emps={data.emps} att={data.att} carry={data.carry} leaves={data.leaves} readOnly={!canEdit} onSaved={reload} />
         : <Skeleton rows={8} />)}
 
       {mode === 'upload' && canEdit && (

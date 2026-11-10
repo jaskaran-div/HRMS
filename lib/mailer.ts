@@ -18,3 +18,19 @@ export function senderOf(s: Pick<Settings, 'company_name' | 'sender_name' | 'sen
   const address = (s.sender_email || 'hr@derivion.in').trim();
   return { from: { name: (s.sender_name || s.company_name).trim(), address }, replyTo: s.reply_to?.trim() || undefined };
 }
+
+/**
+ * Mail goes only to official company addresses, never personal ones.
+ * COMPANY_EMAIL_DOMAINS (comma separated, e.g. "derivion.in,isft.in") lists them; if unset, the domain of the sender address is used.
+ */
+export function officialDomains(s?: Pick<Settings, 'sender_email'> | null): string[] {
+  const env = process.env.COMPANY_EMAIL_DOMAINS;
+  const list = env ? env.split(',') : [((s?.sender_email || 'hr@derivion.in').split('@')[1] ?? '')];
+  return list.map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
+}
+export function isOfficial(email: string | null | undefined, s?: Pick<Settings, 'sender_email'> | null): boolean {
+  const d = (email ?? '').trim().toLowerCase().split('@')[1];
+  return !!d && officialDomains(s).some(x => d === x || d.endsWith('.' + x));
+}
+export const notOfficialMsg = (s?: Pick<Settings, 'sender_email'> | null) =>
+  `Not an official company email (only @${officialDomains(s).join(', @')} addresses get mail).`;
