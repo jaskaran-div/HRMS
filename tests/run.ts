@@ -6,6 +6,8 @@ import { amountInWords } from '../lib/format';
 import { daysInMonth, isOffSaturday, toISODate, toMonthStart } from '../lib/dates';
 import * as XLSX from 'xlsx';
 import { rowsFromWorkbook, type SheetRow } from '../lib/sheet';
+import { availableTypes, overallStatus, quotaFor, stageText, validateLeave, workingDays } from '../lib/leave';
+import { employedIn } from '../lib/exit';
 
 let passed = 0;
 const test = (name: string, fn: () => void) => {
@@ -44,7 +46,7 @@ const sheet: SheetRow[] = people.map(([name, dept, salary, days]) => {
   return row;
 });
 
-const rules = (paidLeave: number): PayRules => ({ paidLeavePerMonth: paidLeave, basicPct: 50, hraPct: 25, conveyancePct: 10 });
+const rules = (paidLeave: number): PayRules => ({ paidLeavePerMonth: paidLeave, shortLeavePerMonth: 1, basicPct: 50, hraPct: 25, conveyancePct: 10 });
 
 console.log('Attendance sheet (Feb 2026, 28 days)');
 const parsed = parseAttendance(sheet, 2026, 2);
@@ -88,7 +90,7 @@ test('summary-columns fallback (no day columns) gives the same counts', () => {
   const rows: SheetRow[] = [{ 'Employee Name': 'Fabi Khan', Salary: 35000, 'Present Days': 21, 'Unpaid Days': 0, 'Half Day': 1, 'Paid Leave Days': 0, 'Sunday Weekoff': 6, 'Total Paid Days': 27.5 }];
   const r = parseAttendance(rows, 2026, 2).rows[0];
   assert.equal(r.source, 'summary');
-  assert.deepEqual(r.counts, { present: 21, half: 1, absent: 0, leave: 0, weekoff: 6, holiday: 0 });
+  assert.deepEqual(r.counts, { present: 21, half: 1, absent: 0, leave: 0, weekoff: 6, holiday: 0, short: 0 });
 });
 
 test('wrong month picked -> day columns are ignored with a warning', () => {
@@ -189,6 +191,196 @@ test('brought-forward arrears and deductions flow into the pay', () => {
   assert.equal(p.gross, 31000);
   assert.equal(p.totalDeductions, 400);
   assert.equal(p.net, 30600);
+});
+
+
+
+// ---- leave rules: 1 short + 1 paid leave per month, then only absent (unpaid)
+
+const Q = { short_leave_per_month: 1, paid_leave_per_month: 1 };
+
+const L = (id: string, leave_type: 'short' | 'paid' | 'unpaid', start_date: string, end_date = start_date, status: 'pending' | 'approved' | 'rejected' | 'cancelled' = 'approved', days = 1) =>
+
+  ({ id, leave_type, start_date, end_date, status, days });
+
+
+
+test('leave: working days skip Sundays and 2nd / 4th Saturdays', () => {
+
+  assert.equal(workingDays('2026-11-09', '2026-11-15'), 5); // Mon-Sun, Sat 14th is the 2nd Saturday
+
+  assert.equal(workingDays('2026-11-07', '2026-11-07'), 1); // 1st Saturday is a working day
+
+});
+
+
+
+test('leave: quota per month; used short / paid leave is no longer offered', () => {
+
+  assert.deepEqual(availableTypes(quotaFor([], '2026-11-01', Q)), ['short', 'paid', 'unpaid']);
+
+  const used = [L('a', 'short', '2026-11-03'), L('b', 'paid', '2026-11-05')];
+
+  assert.deepEqual(availableTypes(quotaFor(used, '2026-11-01', Q)), ['paid', 'unpaid']); // short gone; paid still requestable (over the limit)
+
+  assert.deepEqual(availableTypes(quotaFor(used, '2026-12-01', Q)), ['short', 'paid', 'unpaid']); // new month, fresh quota
+
+  // rejected / cancelled requests give the quota back
+
+  assert.deepEqual(availableTypes(quotaFor([L('a', 'paid', '2026-11-05', undefined, 'rejected')], '2026-11-01', Q)), ['short', 'paid', 'unpaid']);
+
+});
+
+
+
+test('leave: validation', () => {
+
+  const today = '2026-11-10';
+
+  const ok = validateLeave({ leave_type: 'paid', start_date: '2026-11-12', end_date: '2026-11-12' }, [], Q, today);
+
+  assert.deepEqual(ok, { ok: true, days: 1, overQuota: false });
+
+  const twoPaid = validateLeave({ leave_type: 'paid', start_date: '2026-11-12', end_date: '2026-11-13' }, [], Q, today);
+
+  assert.deepEqual(twoPaid, { ok: true, days: 2, overQuota: true }); // more than the 1 paid day: HR decides paid or absent
+
+  const second = validateLeave({ leave_type: 'paid', start_date: '2026-11-20', end_date: '2026-11-20' }, [L('a', 'paid', '2026-11-12', undefined, 'pending')], Q, today);
+
+  assert.deepEqual(second, { ok: true, days: 1, overQuota: true });
+
+  const unpaid = validateLeave({ leave_type: 'unpaid', start_date: '2026-11-16', end_date: '2026-11-20' }, [L('a', 'paid', '2026-11-12')], Q, today);
+
+  assert.deepEqual(unpaid, { ok: true, days: 5, overQuota: false });
+
+  const clash = validateLeave({ leave_type: 'unpaid', start_date: '2026-11-11', end_date: '2026-11-13' }, [L('a', 'paid', '2026-11-12')], Q, today);
+
+  assert.equal(clash.ok, false);
+
+  assert.equal(validateLeave({ leave_type: 'short', start_date: '2026-11-15', end_date: '2026-11-15' }, [], Q, today).ok, false); // Sunday
+
+  assert.equal(validateLeave({ leave_type: 'unpaid', start_date: '2026-09-01', end_date: '2026-09-01' }, [], Q, today).ok, false); // too far back
+
+});
+
+
+
+test('payroll lists only employees employed in the month', () => {
+
+  const e = (doj: string | null, extra: Record<string, string> = {}, archived_at: string | null = null) => ({ doj, extra, archived_at });
+
+  assert.equal(employedIn(e('2026-12-01'), '2026-11-01', null), false); // joins next month
+
+  assert.equal(employedIn(e('2026-11-30'), '2026-11-01', null), true); // joins on the last day
+
+  assert.equal(employedIn(e('2025-01-01', { 'Date of Leaving': '2026-10-31' }), '2026-11-01', null), false); // left last month
+
+  assert.equal(employedIn(e('2025-01-01', { 'Date of Leaving': '2026-11-03' }), '2026-11-01', null), true); // leaves this month
+
+  assert.equal(employedIn(e('2025-01-01', {}, '2026-11-05T00:00:00Z'), '2026-10-01', '2026-11-04'), true); // inactive now, worked in Oct
+
+  assert.equal(employedIn(e('2025-01-01', {}, '2026-11-05T00:00:00Z'), '2026-10-01', null), false); // inactive, no exit date
+
+  assert.equal(employedIn(e(null), '2026-11-01', null), true);
+
+});
+
+
+
+
+
+test('leave: two-step approval (team leader + HR)', () => {
+
+  assert.equal(overallStatus('pending', 'pending'), 'pending');
+
+  assert.equal(overallStatus('approved', 'pending'), 'pending');
+
+  assert.equal(overallStatus('pending', 'approved'), 'pending');
+
+  assert.equal(overallStatus('approved', 'approved'), 'approved');
+
+  assert.equal(overallStatus('not_required', 'approved'), 'approved');
+
+  assert.equal(overallStatus('rejected', 'approved'), 'rejected');
+
+  assert.equal(overallStatus('approved', 'rejected'), 'rejected');
+
+  const s = (tl: 'pending' | 'approved' | 'rejected' | 'not_required', hr: 'pending' | 'approved' | 'rejected') =>
+
+    stageText({ status: overallStatus(tl, hr), tl_status: tl, hr_status: hr, tl_by_name: 'Aman', hr_by_name: 'Riya' });
+
+  assert.equal(s('pending', 'pending'), 'Pending with team leader & HR');
+
+  assert.equal(s('approved', 'pending'), 'Team leader approved (Aman) · pending with HR');
+
+  assert.equal(s('pending', 'approved'), 'HR approved (Riya) · pending with team leader');
+
+  assert.equal(s('approved', 'approved'), 'Approved by team leader & HR');
+
+  assert.equal(s('not_required', 'pending'), 'Pending with HR');
+
+  assert.equal(s('rejected', 'approved'), 'Declined by team leader (Aman)');
+
+});
+
+
+
+
+
+test('short leave: 1 a month is fully paid, extra ones are half days', () => {
+
+  const att = (short: number) => ({ present: 30 - short, half: 0, absent: 0, leave: 0, weekoff: 0, holiday: 0, short });
+
+  const base = { salary: 30000, arrears: 0, otherDeduction: 0, pf: 0, tds: 0, daysInMonth: 30 };
+
+  assert.equal(computePay({ ...base, att: att(0) }, rules(1)).net, 30000);
+
+  const one = computePay({ ...base, att: att(1) }, rules(1));
+
+  assert.equal(one.paidDays, 30); assert.equal(one.net, 30000); assert.equal(one.shortPaid, 1);
+
+  const three = computePay({ ...base, att: att(3) }, rules(1));
+
+  assert.equal(three.shortHalf, 2); assert.equal(three.paidDays, 29); assert.equal(three.net, 29000);
+
+  // old attendance rows without a short leave count still compute the same
+
+  const legacy = { present: 30, half: 0, absent: 0, leave: 0, weekoff: 0, holiday: 0 };
+
+  assert.equal(computePay({ ...base, att: legacy }, rules(1)).net, 30000);
+
+});
+
+
+
+test('short leave is read from sheets (S / SL / Short Leave)', () => {
+
+  const head = (d: number) => `${d}-Feb`;
+
+  const row: SheetRow = { 'Employee Name': 'X' };
+
+  for (let d = 1; d <= 28; d++) row[head(d)] = d === 3 ? 'Short Leave' : d === 4 ? 'SL' : d === 5 ? 's' : 'P';
+
+  const r = parseAttendance([row], 2026, 2).rows[0];
+
+  assert.equal(r.counts.short, 3);
+
+  assert.equal(r.counts.present, 25);
+
+  assert.equal(r.daily?.['3'], 'S');
+
+});
+
+
+
+
+test('paid leave (L) marked by HR never cuts salary, however many days', () => {
+  const base = { salary: 30000, arrears: 0, otherDeduction: 0, pf: 0, tds: 0, daysInMonth: 30 };
+  const p = computePay({ ...base, att: { present: 25, half: 0, absent: 0, leave: 5, weekoff: 0, holiday: 0, short: 0 } }, rules(1));
+  assert.equal(p.paidDays, 30); assert.equal(p.net, 30000);
+  // the same 5 days as absent: only the first is covered by the monthly paid leave
+  const a = computePay({ ...base, att: { present: 25, half: 0, absent: 5, leave: 0, weekoff: 0, holiday: 0, short: 0 } }, rules(1));
+  assert.equal(a.paidDays, 26); assert.equal(a.net, 26000);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

@@ -16,7 +16,7 @@ export interface MailJob {
 
 export interface MailOutcome { sent: number; failed: { name: string; error: string }[] }
 
-const CHUNK = 8;
+const CHUNK = 5; // keeps each request well under the 4.5 MB Vercel body limit
 
 /** Builds the PDFs in the browser and posts them to /api/email/send in small batches. */
 export async function emailPayslips(

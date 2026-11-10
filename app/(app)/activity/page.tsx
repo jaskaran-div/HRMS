@@ -1,5 +1,6 @@
 'use client';
 
+import { ErrorBox } from '@/components/ui';
 import { useApp } from '@/components/AppContext';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/fetch-all';
@@ -53,7 +54,7 @@ export default function ActivityPage() {
   return (
     <>
       <div className="page-h"><h2>Activity log</h2><span className="muted">Last 300 changes — who did what, and when</span></div>
-      {error && <p className="err">{error}</p>}
+      {error && <ErrorBox message={error} />}
       <div className="card">
         <div className="tbl-wrap">
           <table>

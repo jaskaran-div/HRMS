@@ -24,6 +24,7 @@ export function AttendanceModal({ emp, month, existing, onClose, onSaved }: {
     days('half_days', 'Half days', 'Counted as ½ day each'),
     days('absent_days', 'Absent days', 'The monthly paid leave covers the first one'),
     days('leave_days', 'Paid leave already approved'),
+    days('short_leave_days', 'Short leaves', 'The first one each month is fully paid; extra ones count as half days'),
     days('weekoff_days', 'Week offs'),
     days('holiday_days', 'Public holidays'),
     { key: 'arrears', label: 'Arrears (₹)', type: 'number', hint: 'Added to earnings' },
@@ -37,7 +38,7 @@ export function AttendanceModal({ emp, month, existing, onClose, onSaved }: {
   const initial = {
     month: '',
     salary: String(existing?.salary ?? emp.monthly_salary ?? 0),
-    present_days: g('present_days'), half_days: g('half_days'), absent_days: g('absent_days'), leave_days: g('leave_days'),
+    present_days: g('present_days'), half_days: g('half_days'), absent_days: g('absent_days'), leave_days: g('leave_days'), short_leave_days: g('short_leave_days'),
     weekoff_days: g('weekoff_days'), holiday_days: g('holiday_days'), arrears: g('arrears'), other_deduction: g('other_deduction'),
     carry_cleared: existing?.carry_cleared ? 'yes' : 'no',
   };
@@ -50,13 +51,13 @@ export function AttendanceModal({ emp, month, existing, onClose, onSaved }: {
         const m = month ?? (v.month ? monthStart(v.month) : '');
         if (!m) return 'Pick a month.';
         const [y, mo] = m.split('-').map(Number);
-        const total = ['present_days', 'half_days', 'absent_days', 'leave_days', 'weekoff_days', 'holiday_days']
+        const total = ['present_days', 'half_days', 'absent_days', 'leave_days', 'short_leave_days', 'weekoff_days', 'holiday_days']
           .reduce((s, k) => s + num(v[k]), 0);
         if (total > daysInMonth(y, mo)) return `These add up to ${total} days, but ${monthLabel(m)} only has ${daysInMonth(y, mo)}.`;
         const { error } = await supabaseBrowser().from('attendance').upsert({
           employee_id: emp.id, month: m, salary: num(v.salary),
           present_days: num(v.present_days), half_days: num(v.half_days), absent_days: num(v.absent_days),
-          leave_days: num(v.leave_days), weekoff_days: num(v.weekoff_days), holiday_days: num(v.holiday_days),
+          leave_days: num(v.leave_days), short_leave_days: num(v.short_leave_days), weekoff_days: num(v.weekoff_days), holiday_days: num(v.holiday_days),
           arrears: num(v.arrears), other_deduction: num(v.other_deduction), carry_cleared: v.carry_cleared === 'yes', daily: null,
         }, { onConflict: 'employee_id,month' });
         if (error) return error.message;

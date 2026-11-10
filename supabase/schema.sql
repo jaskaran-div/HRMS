@@ -8,16 +8,18 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   username text not null unique check (username ~ '^[a-z0-9]{2,30}$'),
   full_name text not null,
-  role text not null default 'viewer' check (role in ('admin', 'editor', 'viewer')),
+  role text not null default 'viewer' check (role in ('admin', 'editor', 'viewer', 'team_lead', 'employee')),
   active boolean not null default true,
   must_change_password boolean not null default true,
   created_at timestamptz not null default now()
 );
 
--- Permission helpers (security definer so policies can read profiles without recursion)
+-- Permission helpers (security definer so policies can read profiles without recursion).
+-- can_read = HR staff only. Team leader / employee logins never read tables directly from the browser:
+-- the portal loads their data on the server, after checking exactly what they may see.
 create or replace function public.can_read() returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.profiles where id = auth.uid() and active)
+  select exists (select 1 from public.profiles where id = auth.uid() and active and role in ('admin', 'editor', 'viewer'))
 $$;
 
 create or replace function public.can_edit() returns boolean
@@ -316,3 +318,138 @@ create policy payslips_update on public.payslips for update to authenticated
 
 -- audit log: admins read; rows are only ever written by the trigger
 drop policy if exists audit_read on public.audit_log;
+create policy audit_read on public.audit_log for select to authenticated using (public.is_admin());
+
+------------------------------------------------------------------------------
+-- Team leader & employee panels + leave requests
+------------------------------------------------------------------------------
+-- Older databases: widen the role list (the inline check above only applies to new tables)
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles add constraint profiles_role_check
+  check (role in ('admin', 'editor', 'viewer', 'team_lead', 'employee'));
+-- The employee record a login belongs to (required for team leaders and employees, optional for HR staff)
+alter table public.profiles add column if not exists employee_id uuid references public.employees (id) on delete set null;
+create unique index if not exists profiles_employee_id_key on public.profiles (employee_id) where employee_id is not null;
+
+-- Hierarchy: who each employee reports to. A team leader sees everyone below them (their team, and their team's teams).
+alter table public.employees add column if not exists team_lead_id uuid references public.employees (id) on delete set null;
+alter table public.employees drop constraint if exists employees_team_lead_not_self;
+alter table public.employees add constraint employees_team_lead_not_self check (team_lead_id is null or team_lead_id <> id);
+create index if not exists employees_team_lead_idx on public.employees (team_lead_id);
+
+-- Leave quotas per month, and where leave requests are emailed (blank = sender / reply-to address)
+alter table public.settings add column if not exists short_leave_per_month int not null default 1 check (short_leave_per_month >= 0);
+alter table public.settings add column if not exists hr_email text;
+
+-- Everyone below `lead` in the hierarchy (cycles are harmless: UNION stops on repeats). Server only.
+create or replace function public.team_tree(lead uuid) returns setof uuid
+language sql stable security definer set search_path = public as $$
+  with recursive t(id) as (
+    select id from public.employees where team_lead_id = lead
+    union
+    select e.id from public.employees e join t on e.team_lead_id = t.id
+  )
+  select id from t where id <> lead
+$$;
+revoke all on function public.team_tree(uuid) from public, anon, authenticated;
+grant execute on function public.team_tree(uuid) to service_role;
+
+create table if not exists public.leave_requests (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid not null references public.employees (id) on delete cascade,
+  leave_type text not null check (leave_type in ('short', 'paid', 'unpaid')),
+  start_date date not null,
+  end_date date not null,
+  days numeric(4,1) not null default 1 check (days >= 0),
+  reason text,
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'cancelled')),
+  decided_by uuid references public.profiles (id) on delete set null,
+  decided_by_name text,
+  decided_at timestamptz,
+  decision_note text,
+  emailed_at timestamptz,
+  emailed_to text,
+  created_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  constraint leave_dates check (end_date >= start_date)
+);
+create index if not exists leave_requests_emp_idx on public.leave_requests (employee_id, start_date desc);
+create index if not exists leave_requests_start_idx on public.leave_requests (start_date desc);
+create index if not exists leave_requests_pending_idx on public.leave_requests (status) where status = 'pending';
+
+alter table public.leave_requests enable row level security;
+-- HR staff read / decide from the browser; employees and team leaders go through /api/leave (server checks the rules)
+drop policy if exists leave_read on public.leave_requests;
+create policy leave_read on public.leave_requests for select to authenticated using (public.can_read());
+drop policy if exists leave_update on public.leave_requests;
+create policy leave_update on public.leave_requests for update to authenticated
+  using (public.can_edit()) with check (public.can_edit());
+
+drop trigger if exists leave_audit on public.leave_requests;
+create trigger leave_audit after insert or update or delete on public.leave_requests
+  for each row execute function public.log_change();
+
+------------------------------------------------------------------------------
+-- Documents (files live in Google Drive; this table says what they are and who may see them)
+-- employee_id null = company document (terms & conditions, policies…) visible to every login.
+------------------------------------------------------------------------------
+create table if not exists public.documents (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid references public.employees (id) on delete cascade,
+  title text not null,
+  category text,
+  file_name text not null,
+  mime_type text,
+  size_bytes bigint,
+  drive_file_id text not null,
+  visible_to_employee boolean not null default true,
+  uploaded_by uuid references public.profiles (id) on delete set null,
+  uploaded_by_name text,
+  created_at timestamptz not null default now()
+);
+create index if not exists documents_employee_idx on public.documents (employee_id, created_at desc);
+alter table public.documents enable row level security;
+-- HR staff read from the browser; uploads, deletes and every download go through /api/documents
+drop policy if exists documents_read on public.documents;
+create policy documents_read on public.documents for select to authenticated using (public.can_read());
+
+drop trigger if exists documents_audit on public.documents;
+create trigger documents_audit after insert or update or delete on public.documents
+  for each row execute function public.log_change();
+
+------------------------------------------------------------------------------
+-- Two-step leave approval: team leader + HR, each approve / decline independently.
+-- status (overall) = rejected if either declined; approved when HR approved and the team leader approved (or has no step); else pending.
+------------------------------------------------------------------------------
+alter table public.leave_requests add column if not exists tl_status text check (tl_status in ('pending', 'approved', 'rejected', 'not_required'));
+alter table public.leave_requests add column if not exists tl_by uuid references public.profiles (id) on delete set null;
+alter table public.leave_requests add column if not exists tl_by_name text;
+alter table public.leave_requests add column if not exists tl_at timestamptz;
+alter table public.leave_requests add column if not exists tl_note text;
+alter table public.leave_requests add column if not exists hr_status text check (hr_status in ('pending', 'approved', 'rejected'));
+alter table public.leave_requests add column if not exists hr_by uuid references public.profiles (id) on delete set null;
+alter table public.leave_requests add column if not exists hr_by_name text;
+alter table public.leave_requests add column if not exists hr_at timestamptz;
+alter table public.leave_requests add column if not exists hr_note text;
+-- requests made before this existed: the old single decision counts as HR's
+update public.leave_requests set hr_status = case when status in ('approved', 'rejected') then status else 'pending' end,
+  hr_by = decided_by, hr_by_name = decided_by_name, hr_at = decided_at, hr_note = decision_note
+  where hr_status is null;
+update public.leave_requests set tl_status = 'not_required' where tl_status is null;
+alter table public.leave_requests alter column tl_status set default 'not_required';
+alter table public.leave_requests alter column tl_status set not null;
+alter table public.leave_requests alter column hr_status set default 'pending';
+alter table public.leave_requests alter column hr_status set not null;
+
+------------------------------------------------------------------------------
+-- Short leave in attendance: the first `short_leave_per_month` are fully paid, extra ones count as half days
+------------------------------------------------------------------------------
+alter table public.attendance add column if not exists short_leave_days numeric(4,1) not null default 0;
+
+------------------------------------------------------------------------------
+-- Paid leave beyond the monthly allowance can still be requested; HR approves it as paid leave or as absent.
+-- requested_type = what the employee asked for, leave_type = what it counts as.
+------------------------------------------------------------------------------
+alter table public.leave_requests add column if not exists requested_type text check (requested_type in ('short', 'paid', 'unpaid'));
+alter table public.leave_requests add column if not exists over_quota boolean not null default false;
+update public.leave_requests set requested_type = leave_type where requested_type is null;

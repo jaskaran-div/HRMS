@@ -27,8 +27,24 @@ Payslips are kept for the **latest 2 months** only; older ones are deleted autom
 
 * Username + password. Admins add people under **User Access**; the password is generated from the username: `jaskaran` → `Jaskaran@isft`.
 * By default a new user must choose their own password at first login (untick the box when creating to skip). Because the pattern is guessable, leaving this on is strongly recommended — this system holds salaries.
-* Access levels: **Admin** (everything, users, company settings) · **Editor** (import, attendance, payslips) · **Viewer** (read only).
+* Access levels: **Admin** (everything, users, company settings) · **Editor** (import, attendance, payslips, leave approval) · **Viewer** (read only) — these use the HR app. **Team leader** and **Employee** logins use the employee panel at `/portal` and must be linked to an employee record.
+* HR can **Set password** for anyone who forgot theirs (User Access), or reset it to the default pattern. *Create employee logins for everyone without one* makes a login per employee (username = employee ID in lowercase).
 * Nothing is hard-deleted from the UI: employees are *archived*, and every change to employees / attendance / settings is recorded under **Activity Log** (who, when, old → new).
+
+## Employee & team leader panel (`/portal`)
+
+* **Employees** see their own profile, payslips (once HR generates them), attendance, documents, and **apply for leave**.
+* **Leave**: each month gives *Short leave* and *Paid leave* (counts set in *Company & Rules*, default 1 each). Once used, only *Absent (unpaid)* can be picked. Week offs are not counted. On applying, the request is emailed to the employee's team leader and HR (*Company & Rules → Leave requests go to*). HR sees everything under **Leave history**; approving / rejecting emails the employee. Approved leave is a record only — attendance is still marked as usual.
+* **Team leaders** also see **My team** (everyone below them in the hierarchy: profile, attendance, payslips, leave — not bank / PAN / salary) and approve their team's leave.
+* HR sets who reports to whom under **Teams & hierarchy** (filter by department, pick “Reports to”, or select many and set one team leader).
+* Security: portal logins cannot read any table from the browser (database rules allow HR staff only); the portal loads their data on the server after checking exactly what they may see.
+
+## Documents (Google Drive)
+
+HR uploads company documents (terms & conditions, policies — every login sees them) and per-employee documents (visible to that employee unless hidden) under **Documents**. Files are stored privately in a Google Drive folder and streamed through the app after a permission check. Max 4 MB per file (Vercel's request limit). Set it up with **one** of:
+
+* **Google Workspace (recommended)**: Google Cloud Console → create a project → enable *Google Drive API* → *IAM → Service accounts* → create one → *Keys → Add key → JSON*. In Google Drive create a **Shared drive**, add the service account's email as *Content manager*, create a folder in it. Set `GOOGLE_DRIVE_FOLDER_ID` (from the folder URL), `GOOGLE_SERVICE_ACCOUNT_EMAIL` (`client_email` from the JSON) and `GOOGLE_PRIVATE_KEY` (`private_key` from the JSON, in double quotes).
+* **Normal Google account**: create an OAuth client (type *Web application*, redirect URI `https://developers.google.com/oauthplayground`), then in the OAuth Playground (⚙️ → *Use your own OAuth credentials*) authorise `https://www.googleapis.com/auth/drive` and exchange for a refresh token. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` and `GOOGLE_DRIVE_FOLDER_ID`. (Publish the OAuth app, otherwise the token expires after 7 days.)
 
 ## One-time setup
 

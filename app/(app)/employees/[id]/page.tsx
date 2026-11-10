@@ -1,5 +1,6 @@
 'use client';
 
+import { ErrorBox, Skeleton } from '@/components/ui';
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
@@ -63,8 +64,8 @@ export default function EmployeePage() {
     };
   }, [code]);
 
-  if (loading && !data) return <p className="muted">Loading…</p>;
-  if (error) return <p className="err">{error}</p>;
+  if (loading && !data) return <Skeleton rows={8} />;
+  if (error) return <ErrorBox message={error} onRetry={reload} />;
   if (!data) {
     return (
       <div className="card empty"><div className="big">🔍</div><h2>No employee with ID {code}</h2>
@@ -238,7 +239,7 @@ export default function EmployeePage() {
               )}
               <div className="tbl-wrap">
                 <table>
-                  <thead><tr><th>Month</th><th className="n">Present</th><th className="n">Half</th><th className="n">Absent</th><th className="n">Leave</th><th className="n">Week off</th>
+                  <thead><tr><th>Month</th><th className="n">Present</th><th className="n">Half</th><th className="n">Absent</th><th className="n">Leave</th><th className="n">Short</th><th className="n">Week off</th>
                     <th className="n">Paid days</th><th className="n">LOP</th><th className="n">Gross</th><th className="n">Net pay</th><th /></tr></thead>
                   <tbody>
                     {att.map(a => {
@@ -248,7 +249,7 @@ export default function EmployeePage() {
                         <tr key={a.id}>
                           <td><b>{monthLabel(a.month)}</b></td>
                           <td className="n">{a.present_days}</td><td className="n">{a.half_days}</td><td className="n">{a.absent_days}</td>
-                          <td className="n">{Number(a.leave_days) + p.leaveConverted}</td><td className="n">{a.weekoff_days}</td>
+                          <td className="n">{Number(a.leave_days) + p.leaveConverted}</td><td className="n">{Number(a.short_leave_days ?? 0)}</td><td className="n">{a.weekoff_days}</td>
                           <td className="n">{p.paidDays}</td><td className="n">{p.lopDays}</td>
                           <td className="n">{inr(p.gross)}</td><td className="n"><b>{inr(p.net)}</b></td>
                           <td style={{ textAlign: 'right' }}>
@@ -259,7 +260,7 @@ export default function EmployeePage() {
                         </tr>
                       );
                     })}
-                    {!att.length && <tr><td colSpan={11} className="muted" style={{ textAlign: 'center', padding: 26 }}>
+                    {!att.length && <tr><td colSpan={12} className="muted" style={{ textAlign: 'center', padding: 26 }}>
                       No attendance yet. Upload a month on the Attendance page, or add one here.</td></tr>}
                   </tbody>
                 </table>

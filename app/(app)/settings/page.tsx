@@ -13,6 +13,7 @@ export default function SettingsPage() {
     company_name: settings.company_name, company_address: settings.company_address, footer_note: settings.footer_note,
     paid_leave_per_month: String(settings.paid_leave_per_month), basic_pct: String(settings.basic_pct),
     hra_pct: String(settings.hra_pct), conveyance_pct: String(settings.conveyance_pct),
+    short_leave_per_month: String(settings.short_leave_per_month ?? 1), hr_email: settings.hr_email ?? '',
   });
   const [logo, setLogo] = useState<string | null>(settings.logo);
   const [busy, setBusy] = useState(false);
@@ -53,10 +54,12 @@ export default function SettingsPage() {
     e.preventDefault();
     if (special < 0) { notify('Basic + HRA + Conveyance cannot be more than 100%.', 'err'); return; }
     if (!f.company_name.trim()) { notify('Company name is required.', 'err'); return; }
+    if (f.hr_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.hr_email.trim())) { notify('Enter a valid HR email address.', 'err'); return; }
     setBusy(true);
     const { error } = await supabaseBrowser().from('settings').update({
       company_name: f.company_name.trim(), company_address: f.company_address.trim(), footer_note: f.footer_note.trim(), logo,
-      paid_leave_per_month: num(f.paid_leave_per_month), basic_pct: num(f.basic_pct), hra_pct: num(f.hra_pct), conveyance_pct: num(f.conveyance_pct),
+      paid_leave_per_month: num(f.paid_leave_per_month),
+      short_leave_per_month: Math.round(num(f.short_leave_per_month)), hr_email: f.hr_email.trim() || null, basic_pct: num(f.basic_pct), hra_pct: num(f.hra_pct), conveyance_pct: num(f.conveyance_pct),
     }).eq('id', 1);
     setBusy(false);
     if (error) { notify(error.message, 'err'); return; }
@@ -87,7 +90,15 @@ export default function SettingsPage() {
         <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
           <label>Paid leave per month (days)
             <input type="number" min={0} step="0.5" value={f.paid_leave_per_month} onChange={set('paid_leave_per_month')} />
-            <span className="hint">The first absent day(s) each month are paid, not deducted.</span>
+            <span className="hint">The first absent day(s) each month are paid, not deducted. Also the paid leave an employee can apply for each month.</span>
+          </label>
+          <label>Short leaves per month
+            <input type="number" min={0} step="1" value={f.short_leave_per_month} onChange={set('short_leave_per_month')} />
+            <span className="hint">After these are used, employees can only apply for absent (unpaid) leave.</span>
+          </label>
+          <label>Leave requests go to (HR email)
+            <input type="email" value={f.hr_email} onChange={set('hr_email')} placeholder={settings.reply_to || settings.sender_email} />
+            <span className="hint">Plus the employee&apos;s team leader. Blank = the reply-to / sender address.</span>
           </label>
         </div>
         <h3 style={{ marginTop: 18 }}>Salary structure on the payslip</h3>

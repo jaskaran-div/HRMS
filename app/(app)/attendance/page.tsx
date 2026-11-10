@@ -1,5 +1,6 @@
 'use client';
 
+import { ErrorBox, Skeleton } from '@/components/ui';
 import { useMemo, useRef, useState } from 'react';
 import { useApp } from '@/components/AppContext';
 import { AttendanceModal } from '@/components/AttendanceModal';
@@ -13,6 +14,7 @@ import { computePay, payFor, rulesFrom } from '@/lib/payroll';
 import { loadCarry } from '@/lib/carry';
 import { currentYM, daysInMonth, monthLabel, monthStart, shiftMonth } from '@/lib/dates';
 import { inrWhole, norm } from '@/lib/format';
+import type { ApprovedLeave } from '@/components/AttendanceGrid';
 import type { Attendance, Employee } from '@/lib/types';
 
 const matchEmployee = (r: ParsedAttendanceRow, emps: Employee[]): string => {
@@ -41,12 +43,15 @@ export default function AttendancePage() {
 
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
-    const [emps, att] = await Promise.all([
+    const [emps, att, leaves] = await Promise.all([
       fetchAll<Employee>((a, b) => sb.from('employees').select('*').is('archived_at', null).order('emp_code').range(a, b)),
       fetchAll<Attendance>((a, b) => sb.from('attendance').select('*').eq('month', month).range(a, b)),
+      // fully approved leave overlapping this month (shown on the grid)
+      fetchAll<ApprovedLeave>((a, b) => sb.from('leave_requests').select('employee_id, leave_type, start_date, end_date')
+        .eq('status', 'approved').lt('start_date', shiftMonth(month, 1)).gte('end_date', month).range(a, b)).catch(() => [] as ApprovedLeave[]),
     ]);
     const carry = await loadCarry(sb, month, emps, rules);
-    return { month, emps, att, carry };
+    return { month, emps, att, carry, leaves };
   }, [month]);
   const emps = data?.emps ?? [];
   const attByEmp = useMemo(() => new Map((data?.att ?? []).map(a => [a.employee_id, a])), [data]);
@@ -67,7 +72,7 @@ export default function AttendancePage() {
 
   const preview = useMemo(() => (parsed?.rows ?? []).map((r, i) => {
     const e = empById.get(assign[i]);
-    const total = Object.values(r.counts).reduce((s, x) => s + x, 0);
+    const total = Object.values(r.counts).reduce((s, x) => s + (x ?? 0), 0);
     const pay = e ? computePay({
       salary: r.salary ?? e.monthly_salary, arrears: r.arrears, otherDeduction: r.otherDeduction,
       pf: e.pf_amount, tds: e.tds_amount, att: r.counts, daysInMonth: dim,
@@ -91,7 +96,7 @@ export default function AttendancePage() {
     const sb = supabaseBrowser();
     const rows = ready.map(({ r, e }) => ({
       employee_id: e!.id, month, salary: r.salary ?? e!.monthly_salary,
-      present_days: r.counts.present, half_days: r.counts.half, absent_days: r.counts.absent, leave_days: r.counts.leave,
+      present_days: r.counts.present, half_days: r.counts.half, absent_days: r.counts.absent, leave_days: r.counts.leave, short_leave_days: r.counts.short ?? 0,
       weekoff_days: r.counts.weekoff, holiday_days: r.counts.holiday, arrears: r.arrears, other_deduction: r.otherDeduction, daily: r.daily,
     }));
     for (let i = 0; i < rows.length; i += 100) {
@@ -120,7 +125,6 @@ export default function AttendancePage() {
   return (
     <>
       <div className="page-h">
-        <h2>Attendance</h2>
         <input type="month" value={ym} onChange={e => { setYm(e.target.value || ym); setParsed(null); }} />
         {canEdit && (
           <div className="seg">
@@ -130,17 +134,17 @@ export default function AttendancePage() {
         )}
         <span className="muted">{loading ? 'Loading…' : `${(data?.att.length ?? 0)} of ${emps.length} employees have attendance for ${monthLabel(month)}`}</span>
       </div>
-      {error && <p className="err">{error}</p>}
+      {error && <ErrorBox message={error} onRetry={reload} />}
 
       {mode === 'enter' && (data && data.month === month
-        ? <AttendanceGrid month={month} emps={data.emps} att={data.att} carry={data.carry} readOnly={!canEdit} onSaved={reload} />
-        : <p className="muted">Loading…</p>)}
+        ? <AttendanceGrid month={month} emps={data.emps} att={data.att} carry={data.carry} leaves={data.leaves} readOnly={!canEdit} onSaved={reload} />
+        : <Skeleton rows={8} />)}
 
       {mode === 'upload' && canEdit && (
         <div className="card">
           <h3>Upload attendance sheet for {monthLabel(month)}</h3>
           <p className="muted small" style={{ marginTop: 0 }}>
-            One row per employee with a column for each day (Present / Absent / Week Off / Half Day / Paid Leave; leave a day blank if the person had not joined or had left).
+            One row per employee with a column for each day (Present / Absent / Week Off / Half Day / Paid Leave / Short Leave; leave a day blank if the person had not joined or had left).
             Columns Salary, Arrears and Deduction are optional. Employees are matched by Employee ID, or by name if there is no ID column.
           </p>
           <div className="row tight">
@@ -161,7 +165,7 @@ export default function AttendancePage() {
           </p>
           <div className="tbl-wrap">
             <table>
-              <thead><tr><th>Name in sheet</th><th>Employee</th><th className="n">Present</th><th className="n">Half</th><th className="n">Absent</th><th className="n">Leave</th><th className="n">Week off</th><th className="n">Paid days</th><th className="n">Net pay</th></tr></thead>
+              <thead><tr><th>Name in sheet</th><th>Employee</th><th className="n">Present</th><th className="n">Half</th><th className="n">Absent</th><th className="n">Leave</th><th className="n">Short</th><th className="n">Week off</th><th className="n">Paid days</th><th className="n">Net pay</th></tr></thead>
               <tbody>
                 {preview.map((p, i) => (
                   <tr key={i} className={!p.e || p.tooMany || (p.e && dupes.has(p.e.id)) ? 'bad' : ''}>
@@ -175,7 +179,7 @@ export default function AttendancePage() {
                       {p.tooMany && <span className="pill bad" style={{ marginLeft: 6 }}>More than {dim} days</span>}
                     </td>
                     <td className="n">{p.r.counts.present}</td><td className="n">{p.r.counts.half}</td><td className="n">{p.r.counts.absent}</td>
-                    <td className="n">{p.r.counts.leave}</td><td className="n">{p.r.counts.weekoff}</td>
+                    <td className="n">{p.r.counts.leave}</td><td className="n">{p.r.counts.short ?? 0}</td><td className="n">{p.r.counts.weekoff}</td>
                     <td className="n">{p.pay ? p.pay.paidDays : '–'}</td>
                     <td className="n">{p.pay ? (p.pay.net ? inrWhole(p.pay.net) : <span className="pill warn">No salary</span>) : '–'}</td>
                   </tr>
@@ -197,7 +201,7 @@ export default function AttendancePage() {
         <h3>Saved for {monthLabel(month)} {missing > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>{missing} missing</span>}</h3>
         <div className="tbl-wrap">
           <table>
-            <thead><tr><th>Employee</th><th>ID</th><th className="n">Present</th><th className="n">Half</th><th className="n">Absent</th><th className="n">Leave</th><th className="n">Week off</th><th className="n">Paid days</th><th className="n">LOP</th><th className="n">Net pay</th><th /></tr></thead>
+            <thead><tr><th>Employee</th><th>ID</th><th className="n">Present</th><th className="n">Half</th><th className="n">Absent</th><th className="n">Leave</th><th className="n">Short</th><th className="n">Week off</th><th className="n">Paid days</th><th className="n">LOP</th><th className="n">Net pay</th><th /></tr></thead>
             <tbody>
               {emps.map(e => {
                 const a = attByEmp.get(e.id);
@@ -208,15 +212,15 @@ export default function AttendancePage() {
                     {a && p ? (
                       <>
                         <td className="n">{a.present_days}</td><td className="n">{a.half_days}</td><td className="n">{a.absent_days}</td>
-                        <td className="n">{Number(a.leave_days) + p.leaveConverted}</td><td className="n">{a.weekoff_days}</td>
+                        <td className="n">{Number(a.leave_days) + p.leaveConverted}</td><td className="n">{Number(a.short_leave_days ?? 0)}</td><td className="n">{a.weekoff_days}</td>
                         <td className="n">{p.paidDays}</td><td className="n">{p.lopDays}</td><td className="n">{inrWhole(p.net)}</td>
                       </>
-                    ) : <td colSpan={8}><span className="pill warn">No attendance yet</span></td>}
+                    ) : <td colSpan={9}><span className="pill warn">No attendance yet</span></td>}
                     <td style={{ textAlign: 'right' }}>{canEdit && <button className="btn sm" onClick={() => setEdit({ emp: e, existing: a })}>{a ? 'Edit' : 'Add'}</button>}</td>
                   </tr>
                 );
               })}
-              {!emps.length && !loading && <tr><td colSpan={11} className="muted" style={{ textAlign: 'center', padding: 26 }}>Import your employees first (Import / Export).</td></tr>}
+              {!emps.length && !loading && <tr><td colSpan={12} className="muted" style={{ textAlign: 'center', padding: 26 }}>Import your employees first (Import / Export).</td></tr>}
             </tbody>
           </table>
         </div>

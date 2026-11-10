@@ -38,7 +38,7 @@ export function employeeToValues(e?: Employee): Values {
 }
 
 /** Form values -> columns to save. Empty text becomes null. */
-export function valuesToEmployee(v: Values): Omit<Employee, 'id' | 'archived_at'> {
+export function valuesToEmployee(v: Values): Omit<Employee, 'id' | 'archived_at' | 'team_lead_id'> {
   const out: Record<string, unknown> = {
     emp_code: v.emp_code.toUpperCase(),
     name: v.name,
@@ -52,5 +52,5 @@ export function valuesToEmployee(v: Values): Omit<Employee, 'id' | 'archived_at'
   const extra: Record<string, string> = {};
   for (const [k, x] of Object.entries(v)) if (k.startsWith('x:') && x) extra[k.slice(2)] = x;
   out.extra = extra;
-  return out as unknown as Omit<Employee, 'id' | 'archived_at'>;
+  return out as unknown as Omit<Employee, 'id' | 'archived_at' | 'team_lead_id'>;
 }

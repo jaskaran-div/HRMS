@@ -3,14 +3,15 @@ import { norm, num } from './format';
 import { daysInMonth, monthFromName } from './dates';
 import type { AttendanceCounts } from './payroll';
 
-export type DayStatus = 'present' | 'absent' | 'weekoff' | 'half' | 'leave' | 'holiday' | 'blank' | 'unknown';
+export type DayStatus = 'present' | 'absent' | 'weekoff' | 'half' | 'leave' | 'holiday' | 'short' | 'blank' | 'unknown';
 
 const STATUS: Record<string, DayStatus> = {
   present: 'present', p: 'present', pr: 'present',
   absent: 'absent', a: 'absent', ab: 'absent',
   weekoff: 'weekoff', wo: 'weekoff', off: 'weekoff', sunday: 'weekoff', sun: 'weekoff',
   halfday: 'half', half: 'half', hd: 'half',
-  paidleave: 'leave', pl: 'leave', leave: 'leave', cl: 'leave', sl: 'leave', el: 'leave', casualleave: 'leave', sickleave: 'leave',
+  paidleave: 'leave', pl: 'leave', leave: 'leave', cl: 'leave', el: 'leave', casualleave: 'leave', sickleave: 'leave',
+  shortleave: 'short', short: 'short', sl: 'short', shl: 'short', s: 'short', sh: 'short',
   holiday: 'holiday', ph: 'holiday', publicholiday: 'holiday', h: 'holiday',
   w: 'weekoff', l: 'leave', hdp: 'half', hday: 'half',
 };
@@ -21,7 +22,7 @@ export const statusOf = (v: unknown): DayStatus => {
 };
 
 const CODE: Partial<Record<DayStatus, string>> = {
-  present: 'P', absent: 'A', weekoff: 'W', half: 'H', leave: 'L', holiday: 'O',
+  present: 'P', absent: 'A', weekoff: 'W', half: 'H', leave: 'L', holiday: 'O', short: 'S',
 };
 
 const COLUMNS: Record<string, string[]> = {
@@ -34,6 +35,7 @@ const COLUMNS: Record<string, string[]> = {
   absent: ['unpaiddays', 'absentdays', 'absent', 'lop', 'lopdays', 'totalabsent', 'totala', 'a'],
   half: ['halfday', 'halfdays', 'totalhalfday', 'totalhalfdays'],
   leave: ['paidleavedays', 'paidleave', 'leavedays', 'leavestaken', 'leaves', 'totalleave', 'totalleaves'],
+  short: ['shortleave', 'shortleaves', 'shortleavedays', 'totalshortleave', 'sl'],
   weekoff: ['sundayweekoff', 'weekoff', 'weekoffs', 'weekoffdays', 'totalweekoff', 'wo'],
 };
 const LOOKUP = new Map<string, string>();
@@ -112,7 +114,7 @@ export function parseAttendance(rows: SheetRow[], year: number, month: number): 
     const code = String(field(r, 'code') ?? '').trim().toUpperCase() || null;
     if ((!name && !code) || /^total/i.test(name)) return;
 
-    const counts: AttendanceCounts = { present: 0, half: 0, absent: 0, leave: 0, weekoff: 0, holiday: 0 };
+    const counts: AttendanceCounts = { present: 0, half: 0, absent: 0, leave: 0, weekoff: 0, holiday: 0, short: 0 };
     let daily: Record<string, string> | null = null;
     let unknownCells = 0;
 
@@ -131,6 +133,7 @@ export function parseAttendance(rows: SheetRow[], year: number, month: number): 
       counts.half = num(field(r, 'half'));
       counts.leave = num(field(r, 'leave'));
       counts.weekoff = num(field(r, 'weekoff'));
+      counts.short = num(field(r, 'short'));
     }
     if (unknownCells) warnings.push(`${name || code}: ${unknownCells} unreadable day value(s) were ignored.`);
 

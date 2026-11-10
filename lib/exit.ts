@@ -1,5 +1,5 @@
 import { carryFrom, buildPayslip, type PayRules } from './payroll';
-import { shiftMonth, toISODate } from './dates';
+import { daysInMonth, shiftMonth, toISODate } from './dates';
 import type { Attendance, Employee, PayslipData, RelievingLetterData } from './types';
 
 /** Header words HR may have used for the leaving date in the employee sheet (stored in `extra`). */
@@ -16,6 +16,18 @@ export function leavingDate(e: Employee): string | null {
     if (iso) return iso;
   }
   return null;
+}
+
+/** Employed for at least one day of `month` (YYYY-MM-01): joined on/before its last day and did not leave before its first day. */
+export function employedIn(e: Pick<Employee, 'doj' | 'archived_at' | 'extra'>, month: string, leftOn: string | null): boolean {
+  const [y, m] = month.split('-').map(Number);
+  const end = `${month.slice(0, 8)}${String(daysInMonth(y, m)).padStart(2, '0')}`;
+  if (e.doj && e.doj > end) return false;
+  const left = leftOn ?? leavingDate(e as Employee);
+  if (left && left < month) return false;
+  // an inactive employee with no known leaving date is not shown at all
+  if (e.archived_at && !left) return false;
+  return true;
 }
 
 /** Carry-forward into attendance row `a`. `prevIsBatch` = the previous month is generated in the same batch (so it counts as paid). */

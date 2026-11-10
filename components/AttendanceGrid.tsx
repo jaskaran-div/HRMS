@@ -6,7 +6,8 @@ import { supabaseBrowser } from '@/lib/supabase/client';
 import { computePay, rulesFrom, type AttendanceCounts, type Carry } from '@/lib/payroll';
 import { daysInMonth, isOffSaturday, monthLabel, shiftMonth } from '@/lib/dates';
 import { inrWhole, num } from '@/lib/format';
-import type { Attendance, Employee } from '@/lib/types';
+import { leaveLabel } from '@/lib/leave';
+import type { Attendance, Employee, LeaveRequest } from '@/lib/types';
 
 const BRUSHES = [
   { code: 'P', label: 'Present', cls: 'p', key: 'present' },
@@ -14,24 +15,31 @@ const BRUSHES = [
   { code: 'W', label: 'Week off', cls: 'w', key: 'weekoff' },
   { code: 'H', label: 'Half day', cls: 'h', key: 'half' },
   { code: 'L', label: 'Paid leave', cls: 'l', key: 'leave' },
+  { code: 'S', label: 'Short leave', cls: 's', key: 'short' },
   { code: 'O', label: 'Holiday', cls: 'o', key: 'holiday' },
   { code: '', label: 'Clear', cls: '', key: '' },
 ] as const;
-const KEY_OF: Record<string, keyof AttendanceCounts> = { P: 'present', A: 'absent', W: 'weekoff', H: 'half', L: 'leave', O: 'holiday' };
+const KEY_OF: Record<string, keyof AttendanceCounts> = { P: 'present', A: 'absent', W: 'weekoff', H: 'half', L: 'leave', O: 'holiday', S: 'short' };
+/** Attendance mark for an approved leave request. */
+const LEAVE_CODE = { short: 'S', paid: 'L', unpaid: 'A' } as const;
+
+export type ApprovedLeave = Pick<LeaveRequest, 'employee_id' | 'leave_type' | 'start_date' | 'end_date'>;
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 type Days = Record<number, string>;
 interface RowState { days: Days; arrears: string; deduction: string; dirty: boolean }
 
 const countsOf = (days: Days): AttendanceCounts => {
-  const c: AttendanceCounts = { present: 0, half: 0, absent: 0, leave: 0, weekoff: 0, holiday: 0 };
-  Object.values(days).forEach(code => { const k = KEY_OF[code]; if (k) c[k]++; });
+  const c: AttendanceCounts = { present: 0, half: 0, absent: 0, leave: 0, weekoff: 0, holiday: 0, short: 0 };
+  Object.values(days).forEach(code => { const k = KEY_OF[code]; if (k) c[k] = (c[k] ?? 0) + 1; });
   return c;
 };
 
 /** Day-by-day attendance for one month. `month` is YYYY-MM-01. */
-export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
+export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved, leaves = [] }: {
   month: string; emps: Employee[]; att: Attendance[]; carry: Map<string, Carry>; readOnly: boolean; onSaved: () => void;
+  /** Fully approved leave overlapping this month: shown on the grid and can be filled in with one click. */
+  leaves?: ApprovedLeave[];
 }) {
   const { settings, notify } = useApp();
   const rules = rulesFrom(settings);
@@ -47,6 +55,22 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
   const painting = useRef(false);
 
   const attBy = useMemo(() => new Map(att.map(a => [a.employee_id, a])), [att]);
+  /** employee id -> day -> { code, label } from approved leave (week offs skipped). */
+  const leaveDays = useMemo(() => {
+    const out = new Map<string, Map<number, { code: string; label: string }>>();
+    const ym = month.slice(0, 7);
+    for (const l of leaves) {
+      for (let d = 1; d <= dim; d++) {
+        const iso = `${ym}-${String(d).padStart(2, '0')}`;
+        if (iso < l.start_date || iso > l.end_date) continue;
+        const wd = new Date(y, m - 1, d).getDay();
+        if (wd === 0 || isOffSaturday(y, m, d)) continue;
+        if (!out.has(l.employee_id)) out.set(l.employee_id, new Map());
+        out.get(l.employee_id)!.set(d, { code: LEAVE_CODE[l.leave_type], label: leaveLabel(l.leave_type) });
+      }
+    }
+    return out;
+  }, [leaves, month, dim, y, m]);
   const init = () => Object.fromEntries(emps.map(e => {
     const a = attBy.get(e.id);
     const d: Days = {};
@@ -116,6 +140,7 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
       return {
         employee_id: e.id, month, salary: Number(attBy.get(e.id)?.salary) || Number(e.monthly_salary) || 0,
         present_days: c.present, half_days: c.half, absent_days: c.absent, leave_days: c.leave, weekoff_days: c.weekoff, holiday_days: c.holiday,
+        short_leave_days: c.short ?? 0,
         arrears: num(r.arrears), other_deduction: num(r.deduction),
         daily: Object.fromEntries(Object.entries(eff).map(([k, v]) => [String(k), v])),
       };
@@ -141,6 +166,9 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
     onSaved();
   }
 
+  /** Approved-leave days whose mark differs from the leave (what "Fill approved leave" would change). */
+  const pendingLeave = emps.reduce((n, e) => n + [...(leaveDays.get(e.id) ?? [])]
+    .filter(([d, x]) => d >= firstDay(e) && (rows[e.id]?.days[d] ?? auto(e, d)) !== x.code).length, 0);
   const shown = emps.filter(e => !q.trim() || `${e.name} ${e.emp_code}`.toLowerCase().includes(q.trim().toLowerCase()));
   const noSalary = emps.filter(e => !Number(e.monthly_salary) && !Number(attBy.get(e.id)?.salary)).length;
 
@@ -161,6 +189,12 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
             <span className="small muted">Week off day</span>
             <select value={weekOff} onChange={e => setWeekOff(+e.target.value)}>{WEEKDAYS.map((w, i) => <option key={w} value={i}>{w}</option>)}</select>
             <button className="btn sm" onClick={() => bulk((_, d) => (dow(d) === weekOff ? 'W' : undefined))}>Mark as Week off</button>
+            {pendingLeave > 0 && (
+              <button className="btn sm primary" title="Marks S / L / A on the days of fully approved leave requests (week offs are skipped)"
+                onClick={() => bulk((e, d) => leaveDays.get(e.id)?.get(d)?.code)}>
+                Fill approved leave ({pendingLeave} day{pendingLeave > 1 ? 's' : ''})
+              </button>
+            )}
             <button className="btn sm danger" onClick={() => confirm('Clear every day for everyone shown on screen? (Nothing is saved until you press Save.)') && bulk(() => null)}>Clear all</button>
             <span className="sp" style={{ flex: 1 }} />
             <input className="field" placeholder="Find employee…" value={q} onChange={e => setQ(e.target.value)} style={{ minWidth: 170 }} />
@@ -186,7 +220,7 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
                   </button>
                 </th>
               ))}
-              <th>P</th><th>A</th><th>W</th><th>½</th><th>L</th><th>Paid</th><th>Arrears ₹</th><th>Deduct ₹</th><th>Net pay</th>
+              <th>P</th><th>A</th><th>W</th><th>½</th><th>L</th><th title="Short leave">S</th><th>Paid</th><th>Arrears ₹</th><th>Deduct ₹</th><th>Net pay</th>
             </tr>
           </thead>
           <tbody>
@@ -196,7 +230,7 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
               const totalsOnly = !!a && !a.daily && !r.dirty;
               const shownDays = effective(e, r.days);
               const c = totalsOnly
-                ? { present: +a!.present_days, half: +a!.half_days, absent: +a!.absent_days, leave: +a!.leave_days, weekoff: +a!.weekoff_days, holiday: +a!.holiday_days }
+                ? { present: +a!.present_days, half: +a!.half_days, absent: +a!.absent_days, leave: +a!.leave_days, weekoff: +a!.weekoff_days, holiday: +a!.holiday_days, short: +(a!.short_leave_days ?? 0) }
                 : countsOf(shownDays);
               const pay = computePay({
                 salary: Number(a?.salary) || Number(e.monthly_salary) || 0, arrears: num(r.arrears), otherDeduction: num(r.deduction),
@@ -214,18 +248,21 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
                     const v = shownDays[d];
                     const off = d < fd;
                     const b = BRUSHES.find(x => x.code === v);
+                    const lv = off ? undefined : leaveDays.get(e.id)?.get(d);
+                    const hint = lv && lv.code !== v ? ` · approved ${lv.label}` : '';
                     return (
                       <td key={d} className={dow(d) === 0 ? 'sun' : ''}>
                         <button
-                          className={`cell ${off ? 'off' : b?.cls ?? ''}`} disabled={readOnly || off}
+                          className={`cell ${off ? 'off' : b?.cls ?? ''} ${hint ? 'lv' : ''}`} disabled={readOnly || off}
                           onMouseDown={() => { painting.current = true; paint(e, d); }}
                           onMouseEnter={() => painting.current && paint(e, d)}
-                          title={off ? 'Not joined yet' : b?.label ?? 'Not marked'}
+                          title={off ? 'Not joined yet' : (b?.label ?? 'Not marked') + hint}
                         >{off ? '' : v ?? ''}</button>
                       </td>
                     );
                   })}
                   <td className="n">{c.present}</td><td className="n">{c.absent}</td><td className="n">{c.weekoff}</td><td className="n">{c.half}</td><td className="n">{c.leave + pay.leaveConverted}</td>
+                  <td className="n" title={pay.shortHalf ? `${pay.shortHalf} extra short leave(s) paid as half day` : undefined}>{c.short ?? 0}{pay.shortHalf ? '*' : ''}</td>
                   <td className="n"><b>{pay.paidDays}</b></td>
                   <td><input className="mi" value={r.arrears} disabled={readOnly} inputMode="decimal" onChange={ev => edit(e.id, s => ({ ...s, arrears: ev.target.value }))} /></td>
                   <td><input className="mi" value={r.deduction} disabled={readOnly} inputMode="decimal" onChange={ev => edit(e.id, s => ({ ...s, deduction: ev.target.value }))} /></td>
@@ -240,7 +277,7 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
                 </tr>
               );
             })}
-            {!shown.length && <tr><td colSpan={dim + 10} className="muted" style={{ padding: 24 }}>{emps.length ? 'No one matches.' : 'No employees yet — add them on the Employees page first.'}</td></tr>}
+            {!shown.length && <tr><td colSpan={dim + 11} className="muted" style={{ padding: 24 }}>{emps.length ? 'No one matches.' : 'No employees yet — add them on the Employees page first.'}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -249,7 +286,9 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved }: {
         <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
           <button className="btn primary" disabled={saving || !dirtyCount} onClick={save}>{saving ? 'Saving…' : dirtyCount ? `Save ${dirtyCount} change${dirtyCount > 1 ? 's' : ''}` : 'Saved'}</button>
           {dirtyCount > 0 && <button className="btn" onClick={() => setRows(init())}>Discard changes</button>}
-          <span className="muted small">Paid = Present + ½ Half + Week off + Holiday + Paid leave, plus {Number(settings.paid_leave_per_month)} paid leave for the first absence.</span>
+          <span className="muted small">Paid = Present + ½ Half + Week off + Holiday + Paid leave + Short leave, plus {Number(settings.paid_leave_per_month)} paid leave for the first absence.
+            {' '}{Number(settings.short_leave_per_month ?? 1)} short leave a month is fully paid; each extra one (marked *) is paid as half a day.
+            Days with approved leave that are not marked yet have a dotted outline.</span>
         </div>
       )}
     </div>

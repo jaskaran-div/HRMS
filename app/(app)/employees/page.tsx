@@ -1,5 +1,6 @@
 'use client';
 
+import { ErrorBox } from '@/components/ui';
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/components/AppContext';
@@ -126,7 +127,7 @@ export default function EmployeesPage() {
         <span className="sp" />
         {canEdit && <button className="btn primary" onClick={() => setAdding(true)}>+ Add employee</button>}
       </div>
-      {error && <p className="err">{error}</p>}
+      {error && <ErrorBox message={error} onRetry={reload} />}
 
       <div className="card">
         <div className="tools">

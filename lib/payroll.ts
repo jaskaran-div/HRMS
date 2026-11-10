@@ -3,6 +3,8 @@ import { daysInMonth } from './dates';
 
 export interface PayRules {
   paidLeavePerMonth: number;
+  /** Short leaves per month that are fully paid; extra ones are paid as half days. */
+  shortLeavePerMonth: number;
   basicPct: number;
   hraPct: number;
   conveyancePct: number; // special allowance = the remainder
@@ -10,6 +12,7 @@ export interface PayRules {
 
 export const rulesFrom = (s: Settings): PayRules => ({
   paidLeavePerMonth: Number(s.paid_leave_per_month),
+  shortLeavePerMonth: Number(s.short_leave_per_month ?? 1),
   basicPct: Number(s.basic_pct),
   hraPct: Number(s.hra_pct),
   conveyancePct: Number(s.conveyance_pct),
@@ -22,6 +25,8 @@ export interface AttendanceCounts {
   leave: number; // leave already marked paid in the sheet
   weekoff: number;
   holiday: number;
+  /** Short leave days (left early / came late for a few hours). */
+  short?: number;
 }
 
 export interface PayInput {
@@ -44,6 +49,8 @@ export interface PayResult {
   paidDays: number;
   lopDays: number;
   leaveConverted: number; // absent days covered by the monthly paid-leave allowance
+  shortPaid: number; // short leaves paid in full
+  shortHalf: number; // short leaves beyond the monthly allowance, paid as half days
   earnings: PayLine[];
   deductions: PayLine[];
   gross: number;
@@ -52,17 +59,21 @@ export interface PayResult {
 }
 
 /**
- * paid days = present + half/2 + paid leave + week offs + holidays
+ * paid days = present + half/2 + paid leave + week offs + holidays + short leaves
  * The first `paidLeavePerMonth` absent days are paid (the monthly paid leave).
+ * The first `shortLeavePerMonth` short leaves are paid in full; any extra short leave is paid as half a day.
  * Pay = salary / days in month x paid days, rounded to the rupee, then split by the salary structure.
  */
 export function computePay(i: PayInput, r: PayRules): PayResult {
   const a = i.att;
   const allowanceLeft = Math.max(0, r.paidLeavePerMonth - a.leave);
   const leaveConverted = Math.min(a.absent, allowanceLeft);
+  const short = a.short ?? 0;
+  const shortPaid = Math.min(short, Math.max(0, r.shortLeavePerMonth ?? 1));
+  const shortHalf = short - shortPaid;
   const paidDays = Math.min(
     i.daysInMonth,
-    a.present + a.half * 0.5 + a.leave + leaveConverted + a.weekoff + a.holiday,
+    a.present + a.half * 0.5 + a.leave + leaveConverted + a.weekoff + a.holiday + shortPaid + shortHalf * 0.5,
   );
   const lopDays = Math.max(0, i.daysInMonth - paidDays);
 
@@ -92,7 +103,7 @@ export function computePay(i: PayInput, r: PayRules): PayResult {
 
   const gross = earned + (i.arrears > 0 ? i.arrears : 0) + cArrears;
   const totalDeductions = i.tds + i.pf + (i.otherDeduction > 0 ? i.otherDeduction : 0) + cDeduction;
-  return { paidDays, lopDays, leaveConverted, earnings, deductions, gross, totalDeductions, net: gross - totalDeductions };
+  return { paidDays, lopDays, leaveConverted, shortPaid, shortHalf, earnings, deductions, gross, totalDeductions, net: gross - totalDeductions };
 }
 
 export const countsFrom = (a: Attendance): AttendanceCounts => ({
@@ -102,6 +113,7 @@ export const countsFrom = (a: Attendance): AttendanceCounts => ({
   leave: Number(a.leave_days),
   weekoff: Number(a.weekoff_days),
   holiday: Number(a.holiday_days),
+  short: Number(a.short_leave_days ?? 0),
 });
 
 export function payFor(emp: Employee, a: Attendance, rules: PayRules, carry?: Carry): PayResult {
