@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { officialEmailOf } from '@/lib/official-email';
 import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from '@/lib/mailer';
 import {
   baseVars, DEFAULT_TEMPLATES, fillTemplate, htmlToText, TEMPLATE_TYPES, wrapEmail, type EmailTemplateType,
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
   const [{ data: settings }, { data: tpl }, { data: emps }] = await Promise.all([
     admin.from('settings').select('*').eq('id', 1).single(),
     admin.from('email_templates').select('subject, body').eq('type', type).maybeSingle(),
-    admin.from('employees').select('id, name, emp_code, email').in('id', items.map(i => i.employee_id ?? '')),
+    admin.from('employees').select('id, name, emp_code, email, extra').in('id', items.map(i => i.employee_id ?? '')),
   ]);
   if (!settings) return NextResponse.json({ error: 'Company settings are missing.' }, { status: 500 });
   const s = settings as Settings;
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
     const id = it.employee_id ?? '';
     const emp = byId.get(id);
     if (!emp) { results.push({ employee_id: id, ok: false, error: 'Employee not found' }); continue; }
-    const to = (emp.email ?? '').trim();
+    const to = officialEmailOf(emp as never) ?? '';
     if (!EMAIL.test(to)) { results.push({ employee_id: id, ok: false, error: 'No valid email address on file' }); continue; }
     if (!isOfficial(to, s)) { results.push({ employee_id: id, ok: false, error: notOfficialMsg(s) }); continue; }
     const attachments = (it.attachments ?? []).filter(a => a.filename && a.base64)

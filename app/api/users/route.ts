@@ -135,6 +135,19 @@ export async function PATCH(req: Request) {
       await log(admin, g.profile, 'SET_EMAIL', id, { username: target.username, email: e });
       return NextResponse.json({ ok: true });
     }
+    case 'delete': {
+      // removes the login only; employee, attendance, payslips and leave history stay (their links become empty)
+      if (self) return NextResponse.json({ error: 'You cannot delete your own login.' }, { status: 400 });
+      if (target.role === 'admin') {
+        const { count } = await admin.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'admin').eq('active', true);
+        if ((count ?? 0) <= 1) return NextResponse.json({ error: 'This is the last admin login. Make someone else admin first.' }, { status: 400 });
+      }
+      const { error } = await admin.auth.admin.deleteUser(id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      await admin.from('profiles').delete().eq('id', id); // normally removed by the cascade already
+      await log(admin, g.profile, 'DELETE_USER', id, { username: target.username, role: target.role, employee_id: target.employee_id });
+      return NextResponse.json({ ok: true });
+    }
     case 'deactivate': {
       if (self) return NextResponse.json({ error: 'You cannot disable your own login.' }, { status: 400 });
       await admin.auth.admin.updateUserById(id, { ban_duration: '876000h' });

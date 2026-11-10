@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { officialEmailOf } from '@/lib/official-email';
 import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from '@/lib/mailer';
 import { baseVars, fillTemplate, htmlToText, wrapEmail } from '@/lib/email-templates';
 import type { Settings } from '@/lib/types';
@@ -31,11 +32,11 @@ export async function POST(req: Request) {
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: emp }] = await Promise.all([
     admin.from('settings').select('*').eq('id', 1).single(),
-    admin.from('employees').select('id, name, emp_code, email').eq('id', b.employee_id).maybeSingle(),
+    admin.from('employees').select('id, name, emp_code, email, extra').eq('id', b.employee_id).maybeSingle(),
   ]);
   if (!settings) return NextResponse.json({ error: 'Company settings are missing.' }, { status: 500 });
   if (!emp) return NextResponse.json({ error: 'Employee not found.' }, { status: 404 });
-  const to = (emp.email ?? '').trim();
+  const to = officialEmailOf(emp) ?? '';
   if (!EMAIL.test(to)) return NextResponse.json({ error: 'This employee has no valid email address on file.' }, { status: 400 });
   if (!isOfficial(to, settings as Settings)) return NextResponse.json({ error: `${to}: ${notOfficialMsg(settings as Settings)}` }, { status: 400 });
 

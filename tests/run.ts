@@ -1,3 +1,4 @@
+import { officialEmailOf } from '../lib/official-email';
 import assert from 'node:assert/strict';
 import { parseAttendance } from '../lib/parse-attendance';
 import { parseEmployees } from '../lib/parse-employees';
@@ -381,6 +382,13 @@ test('paid leave (L) marked by HR never cuts salary, however many days', () => {
   // the same 5 days as absent: only the first is covered by the monthly paid leave
   const a = computePay({ ...base, att: { present: 25, half: 0, absent: 5, leave: 0, weekoff: 0, holiday: 0, short: 0 } }, rules(1));
   assert.equal(a.paidDays, 26); assert.equal(a.net, 26000);
+});
+
+test('official mail id from the employee sheet wins over the personal email', () => {
+  const e = { email: 'gulamgauswarsi@gmail.com', extra: { 'Email Address': 'gulamgauswarsi@gmail.com', 'Official Mail Id': 'gulam.w@derivion.in' } };
+  assert.equal(officialEmailOf(e), 'gulam.w@derivion.in');
+  assert.equal(officialEmailOf({ email: 'a@derivion.in', extra: {} }), 'a@derivion.in');
+  assert.equal(officialEmailOf({ email: null, extra: { 'Official Mail Id': '' } }), null);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

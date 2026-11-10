@@ -4,6 +4,7 @@ import { supabaseAdmin } from './supabase/admin';
 import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from './mailer';
 import { escapeHtml, htmlToText, wrapEmail } from './email-templates';
 import { hrAddress } from './leave-mail';
+import { officialEmailOf } from './official-email';
 import type { Profile, Role, Settings } from './types';
 
 export type MailResult = { ok: true; to: string[] } | { ok: false; error: string };
@@ -58,8 +59,8 @@ export async function sendNotice(to: (string | null | undefined)[], subject: str
 export async function accountAddress(p: Pick<Profile, 'email' | 'employee_id'>): Promise<string | null> {
   if (validEmail(p.email)) return p.email.trim();
   if (!p.employee_id) return null;
-  const { data } = await supabaseAdmin().from('employees').select('email').eq('id', p.employee_id).maybeSingle();
-  return validEmail(data?.email) ? data!.email!.trim() : null;
+  const { data } = await supabaseAdmin().from('employees').select('email, extra').eq('id', p.employee_id).maybeSingle();
+  return officialEmailOf(data);
 }
 
 /** New login or a password set / reset by HR: sends the username, password and the login link. */
@@ -102,9 +103,9 @@ ${active
 
 /** A document was shared with one employee. */
 export async function emailDocumentShared(employeeId: string, title: string, category: string | null, url: string): Promise<MailResult> {
-  const { data: e } = await supabaseAdmin().from('employees').select('name, email').eq('id', employeeId).maybeSingle();
+  const { data: e } = await supabaseAdmin().from('employees').select('name, email, extra').eq('id', employeeId).maybeSingle();
   if (!e) return { ok: false, error: 'Employee not found.' };
-  return sendNotice([e.email], `New document: ${title}`, `<p><b>Hi ${escapeHtml(e.name)},</b></p>
+  return sendNotice([officialEmailOf(e)], `New document: ${title}`, `<p><b>Hi ${escapeHtml(e.name)},</b></p>
 <p>HR has added a document to your HR Portal account:</p>
 ${table([['Document', title], ...(category ? [['Category', category] as [string, string]] : [])])}
 ${btn(`${url}/portal/documents`, 'Open my documents')}`);
@@ -119,8 +120,8 @@ export async function emailCompanyDocument(title: string, category: string | nul
   if (!ids.length) return { ok: false, error: 'No employee logins yet.' };
   const emails: string[] = [];
   for (let i = 0; i < ids.length; i += 200) {
-    const { data } = await admin.from('employees').select('email').in('id', ids.slice(i, i + 200)).is('archived_at', null);
-    for (const r of data ?? []) if (validEmail(r.email)) emails.push(r.email.trim().toLowerCase());
+    const { data } = await admin.from('employees').select('email, extra').in('id', ids.slice(i, i + 200)).is('archived_at', null);
+    for (const r of data ?? []) { const m = officialEmailOf(r); if (m) emails.push(m.toLowerCase()); }
   }
   const s = await settings();
   if (!s) return { ok: false, error: 'Company settings missing.' };
@@ -147,21 +148,21 @@ ${btn(`${url}/portal/documents`, 'Read it in the HR Portal')}<p style="color:#5b
 export async function emailTeamAssigned(employeeIds: string[], leadId: string | null, url: string): Promise<{ sent: number; error?: string }> {
   if (!mailConfigured()) return { sent: 0, error: NO_SMTP };
   const admin = supabaseAdmin();
-  const { data: emps } = await admin.from('employees').select('id, name, emp_code, email, team_lead_id').in('id', employeeIds.slice(0, 500));
+  const { data: emps } = await admin.from('employees').select('id, name, emp_code, email, extra, team_lead_id').in('id', employeeIds.slice(0, 500));
   const moved = (emps ?? []).filter(e => e.team_lead_id === leadId); // only what is really saved
   if (!moved.length) return { sent: 0 };
-  const { data: lead } = leadId ? await admin.from('employees').select('name, email, designation').eq('id', leadId).maybeSingle() : { data: null };
+  const { data: lead } = leadId ? await admin.from('employees').select('name, email, extra, designation').eq('id', leadId).maybeSingle() : { data: null };
   let sent = 0;
   for (const e of moved) {
-    const r = await sendNotice([e.email], lead ? `You now report to ${lead.name}` : 'Your team leader was removed', `<p><b>Hi ${escapeHtml(e.name)},</b></p>
+    const r = await sendNotice([officialEmailOf(e)], lead ? `You now report to ${lead.name}` : 'Your team leader was removed', `<p><b>Hi ${escapeHtml(e.name)},</b></p>
 ${lead
       ? `<p>HR has updated the team structure. Your team leader is now <b>${escapeHtml(lead.name)}</b>${lead.designation ? ` (${escapeHtml(lead.designation)})` : ''}. Your leave requests will go to them and to HR.</p>`
       : '<p>HR has updated the team structure: you currently have no team leader. Your leave requests go to HR directly.</p>'}
 ${btn(`${url}/portal`, 'Open the HR Portal')}`);
     if (r.ok) sent++;
   }
-  if (lead && validEmail(lead.email)) {
-    const r = await sendNotice([lead.email], `${moved.length} ${moved.length === 1 ? 'person was' : 'people were'} added to your team`, `<p><b>Hi ${escapeHtml(lead.name)},</b></p>
+  if (lead && officialEmailOf(lead)) {
+    const r = await sendNotice([officialEmailOf(lead)], `${moved.length} ${moved.length === 1 ? 'person was' : 'people were'} added to your team`, `<p><b>Hi ${escapeHtml(lead.name)},</b></p>
 <p>HR has added the following to your team. You can see their details and approve their leave in the HR Portal.</p>
 <ul>${moved.map(e => `<li>${escapeHtml(e.name)} (${escapeHtml(e.emp_code)})</li>`).join('')}</ul>
 ${btn(`${url}/portal/team`, 'Open my team')}`);

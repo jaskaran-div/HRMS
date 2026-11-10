@@ -9,6 +9,7 @@ import { fetchAll } from '@/lib/fetch-all';
 import { useLoad } from '@/lib/use-load';
 import { fmtDate } from '@/lib/dates';
 import { defaultPassword, suggestUsername, cleanUsername } from '@/lib/username';
+import { officialEmailOf } from '@/lib/official-email';
 import type { Employee, Profile, Role } from '@/lib/types';
 
 const ROLES: Role[] = ['admin', 'editor', 'viewer', 'team_lead', 'employee'];
@@ -22,7 +23,7 @@ const ROLE_HELP: Record<Role, string> = {
 };
 const needsEmp = (r: Role) => r === 'team_lead' || r === 'employee';
 
-type Emp = Pick<Employee, 'id' | 'emp_code' | 'name' | 'archived_at' | 'email'>;
+type Emp = Pick<Employee, 'id' | 'emp_code' | 'name' | 'archived_at' | 'email' | 'extra'>;
 type Mail = { ok: true; to: string[] } | { ok: false; error: string } | null;
 
 export default function UsersPage() {
@@ -45,7 +46,7 @@ export default function UsersPage() {
     const sb = supabaseBrowser();
     const [users, emps] = await Promise.all([
       sb.from('profiles').select('*').order('created_at'),
-      fetchAll<Emp>((a, b) => sb.from('employees').select('id, emp_code, name, archived_at, email').order('emp_code').range(a, b)),
+      fetchAll<Emp>((a, b) => sb.from('employees').select('id, emp_code, name, archived_at, email, extra').order('emp_code').range(a, b)),
     ]);
     if (users.error) throw new Error(users.error.message);
     return { users: users.data as Profile[], emps };
@@ -81,7 +82,8 @@ export default function UsersPage() {
   function pickEmployee(id: string) {
     setEmpId(id);
     const e = empBy.get(id);
-    if (e) { setFullName(e.name); if (!touched) setUsername(cleanUsername(e.emp_code)); setEmail(''); }
+    if (e) { setFullName(e.name); if (!touched) setUsername(cleanUsername(e.emp_code)); setEmail(officialEmailOf(e) ?? ''); }
+    else setEmail('');
   }
 
   async function create(e: React.FormEvent) {
@@ -114,10 +116,12 @@ export default function UsersPage() {
 
   async function act(u: Profile, action: string, extra: object = {}) {
     if (action === 'reset_password' && !confirm(`Reset ${u.full_name}'s password to the default (${defaultPassword(u.username)})? They will have to choose a new one at next login.${mailReady ? ' The new password is emailed to them.' : ''}`)) return;
+    if (action === 'delete' && prompt(`Delete ${u.full_name}'s login for good?\n\nThey can no longer sign in. Their employee record, attendance, payslips and leave history are NOT deleted.\n\nType the username "${u.username}" to confirm:`)?.trim().toLowerCase() !== u.username) return;
     if (action === 'deactivate' && !confirm(`Disable ${u.full_name}'s login? They will be logged out and cannot sign in until you enable it again.`)) return;
     const r = await call('PATCH', { id: u.id, action, ...extra });
     if (r.error) { reload(); return; }
     if (r.password) { setCred({ username: r.username, password: r.password, what: 'Password changed', mail: r.mail }); mailNote(r.mail, 'Password changed'); }
+    else if (action === 'delete') notify(`Login ${u.username} deleted`);
     else if (action === 'activate' || action === 'deactivate') mailNote(r.mail?.ok ? r.mail : null, action === 'activate' ? 'Login enabled' : 'Login disabled');
     else notify('Saved');
     reload();
@@ -150,8 +154,8 @@ export default function UsersPage() {
             </label>
             <label>Official email for login details{needsEmp(role) && empId ? ' (optional)' : ''}
               <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                placeholder={empBy.get(empId)?.email || (needsEmp(role) ? 'Uses the employee’s email' : 'name@company.com')} />
-              <span className="hint">{empBy.get(empId)?.email && !email.trim() ? `Will go to ${empBy.get(empId)?.email}` : 'Username, password and the login link are sent here'}</span>
+                placeholder={needsEmp(role) ? 'Filled from the employee’s official mail' : 'name@derivion.in'} />
+              <span className="hint">{empId && !officialEmailOf(empBy.get(empId)) ? 'No official mail on this employee’s profile — type it here' : empId && email.trim() === officialEmailOf(empBy.get(empId)) ? 'From the employee profile (Official Mail Id)' : 'Username, password and the login link are sent here'}</span>
             </label>
             <label>Username
               <input value={username} required onChange={e => { setUsername(cleanUsername(e.target.value)); setTouched(true); }} />
@@ -216,7 +220,7 @@ export default function UsersPage() {
                 return (
                   <tr key={u.id}>
                     <td><b>{u.full_name}</b>{me && <span className="muted small"> (you)</span>}</td>
-                    <td>{u.username}<EmailCell u={u} fallback={u.employee_id ? empBy.get(u.employee_id)?.email ?? null : null} onSave={email => act(u, 'set_email', { email })} /></td>
+                    <td>{u.username}<EmailCell u={u} fallback={u.employee_id ? officialEmailOf(empBy.get(u.employee_id)) : null} onSave={email => act(u, 'set_email', { email })} /></td>
                     <td>
                       <select value={u.role} disabled={me} onChange={e => act(u, 'set_role', { role: e.target.value })}>
                         {ROLES.map(r => <option key={r} value={r}>{ROLE_NAME[r]}</option>)}
@@ -235,7 +239,8 @@ export default function UsersPage() {
                       <button className="btn sm" onClick={() => act(u, 'reset_password')}>Reset to default</button>{' '}
                       {u.active
                         ? <button className="btn sm danger" disabled={me} onClick={() => act(u, 'deactivate')}>Disable</button>
-                        : <button className="btn sm" onClick={() => act(u, 'activate')}>Enable</button>}
+                        : <button className="btn sm" onClick={() => act(u, 'activate')}>Enable</button>}{' '}
+                      <button className="btn sm danger" disabled={me} onClick={() => act(u, 'delete')} title="Delete this login (the employee record stays)">Delete</button>
                     </td>
                   </tr>
                 );

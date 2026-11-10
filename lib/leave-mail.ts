@@ -4,6 +4,7 @@ import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } f
 import { escapeHtml, htmlToText, wrapEmail } from './email-templates';
 import { fmtDate } from './dates';
 import { leaveLabel, stageText, STATUS_LABEL } from './leave';
+import { officialEmailOf } from './official-email';
 import type { LeaveRequest, Settings } from './types';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -28,14 +29,15 @@ export async function emailLeaveRequest(l: LeaveRequest, origin: string): Promis
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: emp }] = await Promise.all([
     admin.from('settings').select('*').eq('id', 1).single(),
-    admin.from('employees').select('id, name, emp_code, email, department, team_lead_id').eq('id', l.employee_id).maybeSingle(),
+    admin.from('employees').select('id, name, emp_code, email, extra, department, team_lead_id').eq('id', l.employee_id).maybeSingle(),
   ]);
   if (!settings || !emp) return { ok: false, error: 'Employee not found.' };
   const s = settings as Settings;
-  const e = emp as Emp;
-  const { data: lead } = e.team_lead_id
-    ? await admin.from('employees').select('name, email').eq('id', e.team_lead_id).maybeSingle()
+  const e = { ...(emp as Emp), email: officialEmailOf(emp) };
+  const { data: leadRow } = e.team_lead_id
+    ? await admin.from('employees').select('name, email, extra').eq('id', e.team_lead_id).maybeSingle()
     : { data: null };
+  const lead = leadRow ? { name: leadRow.name as string, email: officialEmailOf(leadRow) } : null;
 
   const given = [lead?.email, hrAddress(s)].filter(valid);
   const to = [...new Set(given.filter(x => isOfficial(x, s)).map(x => x!.trim().toLowerCase()))];
@@ -72,9 +74,10 @@ export async function emailLeaveDecision(l: LeaveRequest): Promise<void> {
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: emp }] = await Promise.all([
     admin.from('settings').select('*').eq('id', 1).single(),
-    admin.from('employees').select('name, email').eq('id', l.employee_id).maybeSingle(),
+    admin.from('employees').select('name, email, extra').eq('id', l.employee_id).maybeSingle(),
   ]);
-  if (!settings || !emp || !valid(emp.email) || !isOfficial(emp.email, settings as Settings)) return;
+  const to = officialEmailOf(emp);
+  if (!settings || !emp || !to || !isOfficial(to, settings as Settings)) return;
   const s = settings as Settings;
   const body = `<p><b>Hi ${escapeHtml(emp.name)},</b></p>
 <p>Your leave request has been <b>${STATUS_LABEL[l.status].toLowerCase()}</b>: ${escapeHtml(stageText(l))}.</p>
@@ -87,7 +90,7 @@ ${table([
   const { from, replyTo } = senderOf(s);
   try {
     await mailTransport().sendMail({
-      from, replyTo, to: emp.email!.trim(),
+      from, replyTo, to,
       subject: `Leave ${STATUS_LABEL[l.status].toLowerCase()}: ${leaveLabel(l.leave_type)}, ${when(l)}`, html, text: htmlToText(html),
     });
   } catch { /* the decision is saved either way */ }
@@ -98,14 +101,14 @@ async function parties(l: LeaveRequest) {
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: emp }] = await Promise.all([
     admin.from('settings').select('*').eq('id', 1).single(),
-    admin.from('employees').select('id, name, emp_code, email, department, team_lead_id').eq('id', l.employee_id).maybeSingle(),
+    admin.from('employees').select('id, name, emp_code, email, extra, department, team_lead_id').eq('id', l.employee_id).maybeSingle(),
   ]);
   if (!settings || !emp) return null;
-  const e = emp as Emp;
+  const e = { ...(emp as Emp), email: officialEmailOf(emp) };
   const { data: lead } = e.team_lead_id
-    ? await admin.from('employees').select('name, email').eq('id', e.team_lead_id).maybeSingle()
+    ? await admin.from('employees').select('name, email, extra').eq('id', e.team_lead_id).maybeSingle()
     : { data: null };
-  return { s: settings as Settings, e, lead: lead as { name: string; email: string | null } | null };
+  return { s: settings as Settings, e, lead: lead ? { name: lead.name as string, email: officialEmailOf(lead) } : null };
 }
 
 async function send(s: Settings, to: (string | null | undefined)[], subject: string, body: string, replyTo?: string | null) {
