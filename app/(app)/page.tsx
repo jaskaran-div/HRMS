@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useApp } from '@/components/AppContext';
 import { Icon } from '@/components/Icon';
 import { ErrorBox, Skeleton } from '@/components/ui';
+import { MaskedAmount } from '@/components/MaskedAmount';
 import { AttendanceStrip, StripLegend, type StripMark } from '@/components/AttendanceStrip';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/fetch-all';
@@ -110,7 +111,7 @@ export default function Dashboard() {
           <div className="tile"><small>Active employees</small><b>{data.emps.length}</b><div className="sub">{stats.depts.length} departments</div></div>
           <div className="tile"><small>On leave today</small><b>{data.away.length}</b><div className="sub">{fmtDate(today)}</div></div>
           <Link href="/leaves" className="tile" style={{ color: 'inherit' }}><small>Leave waiting for HR</small><b>{data.waitingCount}</b><div className="sub">{data.waitingCount ? 'Review now →' : 'All clear'}</div></Link>
-          <div className="tile"><small>Net payroll</small><b>{data.month ? inrWhole(stats.net) : '–'}</b><div className="sub">{data.month ? monthLabel(data.month) : 'No attendance yet'}</div></div>
+          <div className="tile"><small>Net payroll</small><b>{data.month ? <MaskedAmount value={inrWhole(stats.net)} label="net payroll" /> : '–'}</b><div className="sub">{data.month ? monthLabel(data.month) : 'No attendance yet'}</div></div>
         </div>
       </div>
 

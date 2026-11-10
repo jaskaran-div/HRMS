@@ -401,3 +401,53 @@ aside:hover::-webkit-scrollbar-thumb{background-color:#dde3ed}
 .btn.danger-solid:hover:not(:disabled){background:#d13438;border-color:#d13438}
 .btn.danger-solid:disabled{opacity:.45;box-shadow:none}
 @media (max-width:520px){.mbox.dlg .mfoot{flex-direction:column-reverse;align-items:stretch}.mbox.dlg .mfoot .btn{justify-content:center}}
+
+/* ---- portal attendance: month picker, calendar, read-only grid ---- */
+.mpick{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 6px}
+.mpick input{border:0;box-shadow:none;padding:6px 4px;font-weight:600;background:transparent;min-width:150px}
+.mpick input:focus{box-shadow:none;border:0}
+.mpick .icon-btn{width:30px;height:30px}
+.seg a{display:inline-block;padding:6px 14px;font-weight:500;color:var(--ink-2);border-radius:999px;text-decoration:none}
+.seg a.on{background:var(--brand);color:#fff;box-shadow:0 3px 8px rgba(29,111,242,.25)}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.cal-h{font-size:12px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.04em;padding:0 4px 2px}
+.cal-h.sun{color:var(--bad)}
+.cal-d{position:relative;min-height:84px;border:1px solid var(--line);border-radius:14px;padding:8px 10px;background:#fff;display:flex;flex-direction:column;gap:4px;transition:transform .12s,box-shadow .12s}
+.cal-d:not(.blank):hover{transform:translateY(-1px);box-shadow:var(--shadow,0 4px 14px rgba(15,23,42,.08))}
+.cal-d.blank{border:0;background:transparent}
+.cal-d .n{font-weight:700;font-size:14px;color:var(--ink,#1c2333)}
+.cal-d .c{position:absolute;top:8px;right:9px;width:24px;height:24px;border-radius:8px;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff}
+.cal-d small{margin-top:auto;font-size:11.5px;font-weight:500}
+.cal-d.p{background:var(--okbg);border-color:#c9ecd8}.cal-d.p .c{background:var(--ok)}.cal-d.p small{color:var(--ok)}
+.cal-d.a{background:var(--badbg);border-color:#f6c9ca}.cal-d.a .c{background:var(--bad)}.cal-d.a small{color:var(--bad)}
+.cal-d.h{background:var(--warnbg);border-color:#f6dfb5}.cal-d.h .c{background:var(--warn)}.cal-d.h small{color:var(--warn)}
+.cal-d.l{background:var(--soft);border-color:#cfe0fd}.cal-d.l .c{background:var(--brand)}.cal-d.l small{color:var(--brand-ink)}
+.cal-d.s{background:var(--tealbg);border-color:#bfe7ef}.cal-d.s .c{background:var(--teal)}.cal-d.s small{color:var(--teal)}
+.cal-d.o{background:#fbe9fb;border-color:#f1cdf0}.cal-d.o .c{background:#c03bbd}.cal-d.o small{color:#a62aa2}
+.cal-d.w{background:#f3f4f7}.cal-d.w .c{background:#9aa2b1}.cal-d.w small{color:#6b7385}
+.cal-d.off{background:repeating-linear-gradient(45deg,#fafafa,#fafafa 6px,#f0f0f0 6px,#f0f0f0 12px)}.cal-d.off small{color:var(--mute)}
+.cal-d.lv{border:2px dashed var(--brand);background:#fff}.cal-d.lv .c{opacity:.75}
+.cal-d.today{box-shadow:0 0 0 2px var(--brand)}
+.cal-d.sun .n{color:var(--bad)}
+.cal-sum{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin:0 0 16px}
+.cal-sum .cs{border-radius:12px;padding:8px 10px;background:var(--soft-2);display:flex;flex-direction:column}
+.cal-sum .cs b{font-size:20px;line-height:1.2}.cal-sum .cs small{font-size:11.5px;color:var(--mute)}
+.cal-sum .cs.p b{color:var(--ok)}.cal-sum .cs.a b{color:var(--bad)}.cal-sum .cs.h b{color:var(--warn)}.cal-sum .cs.l b{color:var(--brand)}.cal-sum .cs.s b{color:var(--teal)}.cal-sum .cs.o b{color:#a62aa2}.cal-sum .cs.w b{color:#6b7385}
+.cal-legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:14px 0 10px;font-size:12.5px;color:var(--mute)}
+.cal-legend span{display:inline-flex;align-items:center;gap:6px}
+.cal-legend i.cell{width:22px;height:22px;border-radius:6px;display:inline-grid;place-items:center;font-style:normal;font-size:11px}
+.cell.ro{display:grid;place-items:center;cursor:default;margin:0 auto}
+@media (max-width:720px){
+  .cal{gap:4px}.cal-d{min-height:54px;padding:5px 6px;border-radius:10px}
+  .cal-d .c{width:18px;height:18px;font-size:10px;top:5px;right:5px;border-radius:6px}
+  .cal-d small{display:none}.cal-d .n{font-size:12px}
+  .cal-sum{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .mpick input{min-width:120px}
+}
+
+/* ---- hidden money figures (eye to reveal) ---- */
+.masked{display:inline-flex;align-items:center;gap:8px;max-width:100%}
+.masked .mv{white-space:nowrap}
+.masked .mv.hidden{letter-spacing:.04em;color:var(--ink-2,#3b4252)}
+.masked .eye{flex:none;width:30px;height:30px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--mute);display:grid;place-items:center;cursor:pointer;padding:0;transition:background .12s,color .12s}
+.masked .eye:hover{background:var(--soft);color:var(--brand);border-color:#cfe0fd}

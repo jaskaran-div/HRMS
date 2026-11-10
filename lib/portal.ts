@@ -3,7 +3,18 @@ import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { supabaseServer } from './supabase/server';
 import { supabaseAdmin } from './supabase/admin';
+import { officialEmailOf, phoneOf } from './official-email';
 import type { Employee, Profile, Settings } from './types';
+
+/**
+ * Contact details often live only in the imported sheet's extra columns ("Official Mail Id", "Phone Number").
+ * Fill email / phone from there, then drop `extra` so nothing else in it (Aadhaar, PAN, …) reaches the page.
+ */
+function withContact<T extends { email?: string | null; phone?: string | null; extra?: Record<string, string> | null }>(row: T | null): Omit<T, 'extra'> | null {
+  if (!row) return null;
+  const { extra, ...rest } = row;
+  return { ...rest, email: officialEmailOf(row), phone: phoneOf(row) } as Omit<T, 'extra'>;
+}
 
 /** Columns a team leader may see about the people in their team (no bank, PAN, salary or emergency details). */
 export const TEAM_COLUMNS = 'id, emp_code, name, department, designation, email, phone, doj, location, team_lead_id, archived_at';
@@ -34,14 +45,14 @@ export const portalSession = cache(async (): Promise<PortalSession> => {
 
   const [{ data: settings }, { data: me }] = await Promise.all([
     admin.from('settings').select('*').eq('id', 1).single(),
-    p.employee_id ? admin.from('employees').select(SELF_COLUMNS).eq('id', p.employee_id).maybeSingle() : Promise.resolve({ data: null }),
+    p.employee_id ? admin.from('employees').select(`${SELF_COLUMNS}, extra`).eq('id', p.employee_id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   if (!settings) throw new Error('Settings row missing. Did you run supabase/schema.sql?');
-  const self = (me ?? null) as SelfRecord | null;
+  const self = withContact(me as (SelfRecord & { extra: Record<string, string> }) | null) as SelfRecord | null;
   const { data: lead } = self?.team_lead_id
-    ? await admin.from('employees').select(TEAM_COLUMNS).eq('id', self.team_lead_id).maybeSingle()
+    ? await admin.from('employees').select(`${TEAM_COLUMNS}, extra`).eq('id', self.team_lead_id).maybeSingle()
     : { data: null };
-  return { profile: p, settings: settings as Settings, me: self, lead: (lead ?? null) as TeamMember | null, isLead: p.role === 'team_lead' };
+  return { profile: p, settings: settings as Settings, me: self, lead: withContact(lead as (TeamMember & { extra: Record<string, string> }) | null) as TeamMember | null, isLead: p.role === 'team_lead' };
 });
 
 /** Ids of everyone below this employee in the hierarchy. */
@@ -56,7 +67,7 @@ export async function myTeam(s: PortalSession): Promise<TeamMember[]> {
   if (!s.isLead || !s.me) return [];
   const ids = await teamIds(s.me.id);
   if (!ids.length) return [];
-  const { data, error } = await supabaseAdmin().from('employees').select(TEAM_COLUMNS).in('id', ids).is('archived_at', null).order('name');
+  const { data, error } = await supabaseAdmin().from('employees').select(`${TEAM_COLUMNS}, extra`).in('id', ids).is('archived_at', null).order('name');
   if (error) throw new Error(error.message);
-  return (data ?? []) as TeamMember[];
+  return ((data ?? []) as (TeamMember & { extra: Record<string, string> })[]).map(r => withContact(r) as TeamMember);
 }

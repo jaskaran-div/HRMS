@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { monthLabel } from '@/lib/dates';
 import type { Attendance } from '@/lib/types';
 
@@ -5,7 +6,7 @@ export type AttendanceSummary = Pick<Attendance, 'month' | 'present_days' | 'hal
 export const ATTENDANCE_COLUMNS = 'month, present_days, half_days, absent_days, leave_days, short_leave_days, weekoff_days, holiday_days';
 
 /** Month-by-month attendance counts (no salary figures). */
-export function AttendanceTable({ rows }: { rows: AttendanceSummary[] }) {
+export function AttendanceTable({ rows, link }: { rows: AttendanceSummary[]; link?: (month: string) => string }) {
   return (
     <div className="tbl-wrap">
       <table>
@@ -13,7 +14,7 @@ export function AttendanceTable({ rows }: { rows: AttendanceSummary[] }) {
         <tbody>
           {rows.map(a => (
             <tr key={a.month}>
-              <td><b>{monthLabel(a.month)}</b></td><td className="n">{a.present_days}</td><td className="n">{a.half_days}</td><td className="n">{a.absent_days}</td>
+              <td>{link ? <Link href={link(a.month)}><b>{monthLabel(a.month)}</b></Link> : <b>{monthLabel(a.month)}</b>}</td><td className="n">{a.present_days}</td><td className="n">{a.half_days}</td><td className="n">{a.absent_days}</td>
               <td className="n">{a.leave_days}</td><td className="n">{a.short_leave_days ?? 0}</td><td className="n">{a.weekoff_days}</td><td className="n">{a.holiday_days}</td>
             </tr>
           ))}

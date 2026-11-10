@@ -18,3 +18,18 @@ export function officialEmailOf(e: HasEmail | null | undefined): string | null {
   const m = (e.email ?? '').trim();
   return EMAIL.test(m) ? m : null;
 }
+
+const PHONE_KEY = /(phone|mobile|contact\s*(no|number)|cell)/i;
+const NOT_OWN = /(emergency|father|mother|parent|spouse|guardian|alternate|alt\b|home)/i;
+
+/** The employee's own phone: the phone field, else an extra column like "Phone Number" / "Mobile" (not emergency / father's). */
+export function phoneOf(e: { phone?: string | null; extra?: Record<string, string> | null } | null | undefined): string | null {
+  if (!e) return null;
+  const p = (e.phone ?? '').trim();
+  if (p) return p;
+  for (const [k, v] of Object.entries(e.extra ?? {})) {
+    const x = String(v ?? '').trim();
+    if (PHONE_KEY.test(k) && !NOT_OWN.test(k) && /\d{6,}/.test(x.replace(/\D/g, ''))) return x;
+  }
+  return null;
+}

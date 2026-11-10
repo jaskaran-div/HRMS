@@ -5,6 +5,7 @@ import { currentYM, fmtDate, monthLabel, todayISO } from '@/lib/dates';
 import { initials, inr } from '@/lib/format';
 import { leaveLabel, quotaFor, stageText, STATUS_PILL } from '@/lib/leave';
 import { Icon } from '@/components/Icon';
+import { MaskedAmount } from '@/components/MaskedAmount';
 import { AttendanceStrip, StripLegend, markOf, type StripMark } from '@/components/AttendanceStrip';
 import type { Attendance, LeaveRequest } from '@/lib/types';
 
@@ -81,7 +82,7 @@ export default async function PortalHome() {
         </div>
         <div className="tiles">
           <div className="tile"><small>Present days</small><b>{a ? Number(a.present_days) : '–'}<em>{a ? monthLabel(a.month, false) : ''}</em></b></div>
-          <div className="tile"><small>Latest net pay</small><b style={{ fontSize: 22 }}>{slip ? inr(slip.net_pay) : '–'}</b><div className="sub">{slip ? monthLabel(slip.month) : 'Not published yet'}</div></div>
+          <div className="tile"><small>Latest net pay</small><b style={{ fontSize: 22 }}>{slip ? <MaskedAmount value={inr(slip.net_pay)} label="net pay" /> : '–'}</b><div className="sub">{slip ? monthLabel(slip.month) : 'Not published yet'}</div></div>
           <div className="tile"><small>Short leave left</small><b>{q.shortLeft}<em>of {q.shortPerMonth}</em></b><div className="sub">{monthLabel(month)}</div></div>
           <div className="tile"><small>Paid leave left</small><b>{q.paidLeft}<em>of {q.paidPerMonth}</em></b><div className="sub">{monthLabel(month)}</div></div>
         </div>
