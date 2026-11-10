@@ -12,6 +12,7 @@ import { defaultPassword, suggestUsername, cleanUsername } from '@/lib/username'
 import { officialEmailOf } from '@/lib/official-email';
 import type { Employee, Profile, Role } from '@/lib/types';
 
+import { ask } from '@/components/Dialog';
 const ROLES: Role[] = ['admin', 'editor', 'viewer', 'team_lead', 'employee'];
 const ROLE_NAME: Record<Role, string> = { admin: 'Admin (HR)', editor: 'Editor (HR)', viewer: 'Viewer (HR)', team_lead: 'Team leader', employee: 'Employee' };
 const ROLE_HELP: Record<Role, string> = {
@@ -102,7 +103,11 @@ export default function UsersPage() {
   /** One employee login per active employee that has none: username = employee ID in lowercase. */
   async function createAll() {
     if (!unlinkedActive.length) return;
-    if (!confirm(`Create an Employee login for ${unlinkedActive.length} employee(s) who have none?\n\nUsername = their employee ID in lowercase (e.g. isftd0007), password = the default pattern (e.g. Isftd0007@isft). They must choose their own password at first login.${mailReady && sendMail ? '\n\nEach person with an email address on their employee record gets their login details by email.' : ''}`)) return;
+    if (!(await ask.confirm({
+      title: `Create ${unlinkedActive.length} employee login${unlinkedActive.length === 1 ? '' : 's'}?`,
+      message: `Username = their employee ID in lowercase (e.g. isftd0007), password = the default pattern (e.g. Isftd0007@isft). They must choose their own password at first login.${mailReady && sendMail ? '\n\nEach person with an official mail on their profile gets their login details by email.' : ''}`,
+      confirmText: 'Create logins',
+    }))) return;
     const made: { name: string; username: string; password: string; emailed: boolean }[] = [];
     const failed: string[] = [];
     setBulk({ done: 0, total: unlinkedActive.length, made, failed });
@@ -115,9 +120,18 @@ export default function UsersPage() {
   }
 
   async function act(u: Profile, action: string, extra: object = {}) {
-    if (action === 'reset_password' && !confirm(`Reset ${u.full_name}'s password to the default (${defaultPassword(u.username)})? They will have to choose a new one at next login.${mailReady ? ' The new password is emailed to them.' : ''}`)) return;
-    if (action === 'delete' && prompt(`Delete ${u.full_name}'s login for good?\n\nThey can no longer sign in. Their employee record, attendance, payslips and leave history are NOT deleted.\n\nType the username "${u.username}" to confirm:`)?.trim().toLowerCase() !== u.username) return;
-    if (action === 'deactivate' && !confirm(`Disable ${u.full_name}'s login? They will be logged out and cannot sign in until you enable it again.`)) return;
+    if (action === 'reset_password' && !(await ask.confirm({
+      title: `Reset ${u.full_name}'s password?`, tone: 'warn', confirmText: 'Reset password',
+      message: `It goes back to the default (${defaultPassword(u.username)}) and they must choose a new one at next login.${mailReady ? ' The new password is emailed to them.' : ''}`,
+    }))) return;
+    if (action === 'delete' && !(await ask.confirm({
+      title: `Delete ${u.full_name}'s login?`, danger: true, confirmText: 'Delete login', typeToConfirm: u.username,
+      message: 'They can no longer sign in. Their employee record, attendance, payslips and leave history are kept.',
+    }))) return;
+    if (action === 'deactivate' && !(await ask.confirm({
+      title: `Disable ${u.full_name}'s login?`, danger: true, confirmText: 'Disable',
+      message: 'They are logged out and cannot sign in until you enable it again.',
+    }))) return;
     const r = await call('PATCH', { id: u.id, action, ...extra });
     if (r.error) { reload(); return; }
     if (r.password) { setCred({ username: r.username, password: r.password, what: 'Password changed', mail: r.mail }); mailNote(r.mail, 'Password changed'); }
@@ -262,7 +276,14 @@ function EmailCell({ u, fallback, onSave }: { u: Profile; fallback: string | nul
   return (
     <div className="muted small">
       <a href="#" style={{ color: 'inherit' }} title={u.email ? 'Email for login details (click to change)' : fallback ? 'From the employee record (click to set a different one)' : 'Click to add an email for login details'}
-        onClick={e => { e.preventDefault(); const v = prompt('Email for login details and password emails (leave empty to use the employee record):', u.email ?? ''); if (v !== null) onSave(v.trim() || null); }}>
+        onClick={async e => {
+          e.preventDefault();
+          const v = await ask.prompt({ title: `Email for ${u.full_name}`, inputType: 'email', defaultValue: u.email ?? '', placeholder: fallback ?? 'name@derivion.in',
+            label: 'Official email for login details and password emails', confirmText: 'Save',
+            message: fallback ? `Leave empty to use the official mail from the employee profile (${fallback}).` : undefined,
+            validate: x => (!x || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x) ? null : 'That email address does not look right.') });
+          if (v !== null) onSave(v || null);
+        }}>
         {shown || '+ add email'}
       </a>
     </div>

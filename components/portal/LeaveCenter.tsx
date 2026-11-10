@@ -8,6 +8,7 @@ import { fmtDate, monthLabel } from '@/lib/dates';
 import { availableTypes, LEAVE_TYPES, leaveLabel, quotaFor, validateLeave } from '@/lib/leave';
 import type { LeaveRequest, LeaveType, Settings } from '@/lib/types';
 
+import { ask } from '../Dialog';
 type QuotaSettings = Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month'>;
 
 export function LeaveCenter({ leaves, today, quota, mailReady, recipients }: {
@@ -46,7 +47,7 @@ export function LeaveCenter({ leaves, today, quota, mailReady, recipients }: {
   }
 
   async function act(l: LeaveRequest, action: 'cancel' | 'email') {
-    if (action === 'cancel' && !confirm('Cancel this leave request?')) return;
+    if (action === 'cancel' && !(await ask.confirm({ title: 'Cancel this leave request?', message: 'Your team leader and HR are told it is cancelled.', confirmText: 'Cancel request', cancelText: 'Keep it', danger: true }))) return;
     setBusy(l.id);
     const res = await fetch('/api/leave', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: l.id, action }) });
     const j = await res.json().catch(() => ({}));

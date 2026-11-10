@@ -18,6 +18,8 @@ import { TEMPLATE_META, type EmailTemplateType } from '@/lib/email-templates';
 import type { PayslipData } from '@/lib/types';
 import type { Attendance, Employee, PayslipRow } from '@/lib/types';
 
+import { ask } from '@/components/Dialog';
+import { officialEmailOf } from '@/lib/official-email';
 const KEEP_MONTHS = 2;
 const NO_MAIL = 'Email is not set up on the server yet: add SMTP_HOST, SMTP_USER and SMTP_PASS to .env.local (and to Vercel → Settings → Environment Variables), then restart / redeploy.';
 
@@ -117,7 +119,7 @@ export default function PayrollPage() {
     await downloadPayslips(slips.map(s => s.data), company, `Payslips_${monthLabel(month, false).replace(' ', '_')}.pdf`);
   }
 
-  const mailable = (r: Row) => !!r.slip && !!r.emp.email?.trim();
+  const mailable = (r: Row) => !!r.slip && !!officialEmailOf(r.emp);
 
   /**
    * `only` = one employee: if their payslip is not generated yet (or is out of date) it is saved first, then emailed.
@@ -125,16 +127,18 @@ export default function PayrollPage() {
    */
   async function sendMail(only?: Row) {
     if (!mailReady) { notify(NO_MAIL, 'err'); return; }
-    if (only && !only.emp.email?.trim()) { notify(`${only.emp.name} has no email address. Add it on their profile (Edit details) first.`, 'err'); return; }
+    if (only && !officialEmailOf(only.emp)) { notify(`${only.emp.name} has no official mail. Add it on their profile (Edit details) first.`, 'err'); return; }
     const targets = only ? [only] : rows.filter(mailable);
-    const noEmail = only ? 0 : rows.filter(r => r.slip && !r.emp.email?.trim()).length;
-    if (!targets.length) { notify('Nobody here has a generated payslip and an email address.', 'err'); return; }
+    const noEmail = only ? 0 : rows.filter(r => r.slip && !officialEmailOf(r.emp)).length;
+    if (!targets.length) { notify('Nobody here has a generated payslip and an official mail.', 'err'); return; }
     const title = TEMPLATE_META.find(t => t.type === mailType)!.title;
     const mustSave = !!only && (only.status === 'new' || only.status === 'stale');
     if (mustSave && !inWindow) { notify(`Payslips for ${monthLabel(month)} can no longer be generated, so this one cannot be emailed.`, 'err'); return; }
-    const who = targets.length === 1 ? `${targets[0].emp.name} (${targets[0].emp.email})` : `${targets.length} employees`;
-    const skipped = noEmail ? `\n\n${noEmail} employee(s) have no email address and will be skipped.` : '';
-    if (!confirm(`${mustSave ? (only!.status === 'new' ? 'Generate and email' : 'Regenerate and email') : 'Email'} the ${monthLabel(month)} payslip to ${who} using "${title}"?${skipped}`)) return;
+    const who = targets.length === 1 ? `${targets[0].emp.name} (${officialEmailOf(targets[0].emp)})` : `${targets.length} employees`;
+    const skipped = noEmail ? `\n\n${noEmail} employee(s) have no official mail and will be skipped.` : '';
+    const verb = mustSave ? (only!.status === 'new' ? 'Generate and email' : 'Regenerate and email') : 'Email';
+    if (!(await ask.confirm({ title: `${verb} the ${monthLabel(month)} payslip${targets.length === 1 ? '' : 's'}?`, confirmText: 'Send email',
+      message: `To ${who}, using the "${title}" template.${skipped}` }))) return;
     setMailing(only ? only.emp.id : 'all');
     try {
       let single: PayslipData | null = null;
@@ -232,7 +236,7 @@ export default function PayrollPage() {
                           <button className="btn sm" onClick={() => downloadPayslips([d], company, payslipFilename(d))}>PDF</button>
                           {canEdit && (r.slip || inWindow) && (
                             <> <button className="btn sm" disabled={!!mailing}
-                              title={!mailReady ? 'Email is not set up on the server' : r.emp.email ? `Email to ${r.emp.email}` : 'No email address on file'}
+                              title={!mailReady ? 'Email is not set up on the server' : officialEmailOf(r.emp) ? `Email to ${officialEmailOf(r.emp)}` : 'No official mail on file'}
                               onClick={() => sendMail(r)}>{mailing === r.emp.id ? 'Sending…' : 'Email'}</button></>
                           )}
                           {canEdit && inWindow && (r.status === 'new' || r.status === 'stale') && (

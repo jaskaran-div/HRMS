@@ -3,6 +3,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { PLACEHOLDERS } from '@/lib/email-templates';
 
+import { ask } from './Dialog';
 export interface RichEditorHandle { html: () => string; setHtml: (h: string) => void }
 
 /** Small rich-text box for email bodies. Uncontrolled: set the text with `initial` / setHtml, read it with html() or onChange. */
@@ -36,7 +37,16 @@ export const RichEditor = forwardRef<RichEditorHandle, {
         <button type="button" className="btn sm" title="Bulleted list" onMouseDown={keep} onClick={() => exec('insertUnorderedList')}>• List</button>
         <button type="button" className="btn sm" title="Numbered list" onMouseDown={keep} onClick={() => exec('insertOrderedList')}>1. List</button>
         <button type="button" className="btn sm" title="Link" onMouseDown={keep}
-          onClick={() => { const u = prompt('Link address (https://…)'); if (u && /^(https?:|mailto:)/i.test(u.trim())) exec('createLink', u.trim()); }}>🔗 Link</button>
+          onClick={async () => {
+            const sel = window.getSelection();
+            const range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null; // the dialog takes focus; keep the selection
+            const u = await ask.prompt({ title: 'Insert a link', label: 'Link address', placeholder: 'https://…', inputType: 'url', confirmText: 'Insert', required: true,
+              validate: v => (/^(https?:|mailto:)/i.test(v) ? null : 'Start with https:// or mailto:') });
+            if (!u) return;
+            box.current?.focus();
+            if (range) { const s2 = window.getSelection(); s2?.removeAllRanges(); s2?.addRange(range); }
+            exec('createLink', u);
+          }}>🔗 Link</button>
         <span className="sp" style={{ flex: 1 }} />
         <div style={{ position: 'relative' }}>
           <button type="button" className="btn sm" onMouseDown={keep} onClick={() => setMenu(m => !m)}>Insert Placeholders ▾</button>

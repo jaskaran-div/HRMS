@@ -12,6 +12,7 @@ import { currentYM, fmtDate, monthLabel, monthStart, shiftMonth } from '@/lib/da
 import { leaveLabel } from '@/lib/leave';
 import type { LeaveRequest } from '@/lib/types';
 
+import { ask } from '@/components/Dialog';
 type Row = LeaveRequest & { employees: { name: string; emp_code: string; department: string | null } | null };
 
 const FILTERS = {
@@ -52,7 +53,9 @@ export default function LeavesPage() {
     (!q.trim() || [l.employees?.name, l.employees?.emp_code, l.employees?.department].some(x => (x ?? '').toLowerCase().includes(q.trim().toLowerCase())))), [data, filter, q]);
 
   async function decide(l: Row, action: 'approve' | 'reject', countAs?: 'paid' | 'unpaid') {
-    const note = prompt(action === 'reject' ? `Reason for declining ${l.employees?.name}'s leave (optional):` : `Note for ${l.employees?.name} (optional):`, '');
+    const note = await ask.prompt(action === 'reject'
+      ? { title: `Decline ${l.employees?.name}'s leave?`, label: 'Reason (optional, the employee sees it)', multiline: true, confirmText: 'Decline', danger: true }
+      : { title: `Approve ${l.employees?.name}'s leave${countAs ? (countAs === 'paid' ? ' as paid leave' : ' as absent') : ''}?`, label: 'Note (optional)', multiline: true, confirmText: 'Approve' });
     if (note === null) return;
     setBusy(l.id);
     const res = await fetch('/api/leave', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: l.id, action, note, as: 'hr', count_as: countAs }) });

@@ -11,6 +11,7 @@ import {
 } from '@/lib/email-templates';
 import { fmtDate } from '@/lib/dates';
 
+import { ask } from '@/components/Dialog';
 type Tab = 'templates' | 'sender';
 
 interface Row { type: string; title: string | null; subject: string; body: string; updated_at: string }
@@ -125,7 +126,9 @@ function TemplateEditor({ type, onBack }: { type: string; onBack: () => void }) 
   }
 
   async function reset() {
-    if (!confirm(meta ? 'Go back to the built-in text for this template? Your edits will be lost.' : 'Delete this template?')) return;
+    if (!(await ask.confirm(meta
+      ? { title: 'Restore the built-in text?', message: 'Your edits to this template will be lost.', confirmText: 'Restore', tone: 'warn' }
+      : { title: 'Delete this template?', confirmText: 'Delete', danger: true }))) return;
     const { error } = await supabaseBrowser().from('email_templates').delete().eq('type', type);
     if (error) { notify(error.message, 'err'); return; }
     notify(meta ? 'Reset to default' : 'Template deleted');

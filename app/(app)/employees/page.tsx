@@ -16,6 +16,7 @@ import { buildExit, LEAVING_LABEL, leavingDate } from '@/lib/exit';
 import { EMPLOYEE_FIELDS, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
 import type { Attendance, Employee, PayslipRow } from '@/lib/types';
 
+import { ask as dialog } from '@/components/Dialog';
 const chunks = <T,>(xs: T[], n = 100) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
 
 export default function EmployeesPage() {
@@ -61,7 +62,8 @@ export default function EmployeesPage() {
   /** `entered` = dates HR typed for employees that had none; they are saved on the employee as "Date of Leaving". */
   async function runInactive(entered: Record<string, string>) {
     const items = selected.map(e => ({ e, day: entered[e.id] || leavingDate(e)! }));
-    if (!confirm(`Mark ${items.length} employee${items.length > 1 ? 's' : ''} inactive on their date of leaving? A relieving letter and the last ${exitMonths} months of payslips are saved for each.`)) return;
+    if (!(await dialog.confirm({ title: `Mark ${items.length} employee${items.length > 1 ? 's' : ''} inactive?`, danger: true, confirmText: 'Mark inactive',
+      message: `Each one is made inactive on their date of leaving. A relieving letter and the last ${exitMonths} months of payslips are saved for each.` }))) return;
     setBusy(true);
     const sb = supabaseBrowser();
     try {
@@ -102,8 +104,8 @@ export default function EmployeesPage() {
     setProblem(null);
     const n = selected.length;
     const s = n > 1 ? 's' : '';
-    if (!confirm(`Permanently delete ${n} employee${s}?\n\nThis also deletes their attendance, payslips and exit documents and CANNOT be undone. (Use "Mark inactive" if you only want them out of payroll.)`)) return;
-    if (prompt(`Type DELETE to confirm deleting ${n} employee${s}.`)?.trim() !== 'DELETE') return;
+    if (!(await dialog.confirm({ title: `Permanently delete ${n} employee${s}?`, danger: true, confirmText: 'Delete for good', typeToConfirm: 'DELETE',
+      message: 'This also deletes their attendance, payslips and exit documents and cannot be undone. Use "Mark inactive" if you only want them out of payroll.' }))) return;
     setBusy(true);
     const sb = supabaseBrowser();
     let gone = 0;

@@ -379,3 +379,25 @@ aside:hover::-webkit-scrollbar-thumb{background-color:#dde3ed}
 .strip .d{min-width:0;flex:none}
 .strip::-webkit-scrollbar{height:6px}
 .strip::-webkit-scrollbar-thumb{border-width:1px}
+
+/* ---- app dialogs (replace the browser's confirm / prompt) ---- */
+.dlg-wrap{z-index:60}
+.mbox.dlg{max-width:460px;padding:22px 22px 18px}
+.dlg-head{display:flex;gap:14px;align-items:flex-start}
+.dlg-head h3{margin:2px 0 6px;font-size:17px;line-height:1.35}
+.dlg-msg{color:var(--muted,#5b6475);font-size:14px;line-height:1.55;white-space:pre-line}
+.dlg-msg b{color:var(--ink,#1c2333)}
+.dlg-ic{flex:none;width:42px;height:42px;border-radius:12px;display:grid;place-items:center}
+.dlg-ic.danger{background:var(--badbg);color:var(--bad)}
+.dlg-ic.warn{background:var(--warnbg);color:var(--warn)}
+.dlg-ic.primary{background:var(--soft);color:var(--brand)}
+.dlg-x{margin:-6px -6px 0 0;flex:none}
+.dlg-field{display:flex;flex-direction:column;gap:6px;margin-top:16px;font-size:13px;color:var(--muted,#5b6475)}
+.dlg-field input,.dlg-field textarea{width:100%;font:inherit;font-size:14px;color:var(--ink,#1c2333)}
+.dlg-field textarea{resize:vertical;min-height:72px}
+.dlg-err{display:flex;gap:6px;align-items:center;color:var(--bad);font-size:13px;margin:10px 0 0}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--soft-2);padding:1px 6px;border-radius:6px}
+.btn.danger-solid{background:var(--bad);border-color:var(--bad);color:#fff;box-shadow:0 4px 12px rgba(229,72,77,.25)}
+.btn.danger-solid:hover:not(:disabled){background:#d13438;border-color:#d13438}
+.btn.danger-solid:disabled{opacity:.45;box-shadow:none}
+@media (max-width:520px){.mbox.dlg .mfoot{flex-direction:column-reverse;align-items:stretch}.mbox.dlg .mfoot .btn{justify-content:center}}

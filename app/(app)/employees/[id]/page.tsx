@@ -24,6 +24,8 @@ import { TEMPLATE_META, type EmailTemplateType } from '@/lib/email-templates';
 import { todayISO } from '@/lib/dates';
 import type { Attendance, Employee, ExitRecord, PayslipData, PayslipRow } from '@/lib/types';
 
+import { ask } from '@/components/Dialog';
+import { officialEmailOf } from '@/lib/official-email';
 type Tab = 'profile' | 'pay' | 'payslips';
 
 const kv = (label: string, value: string | null | undefined) =>
@@ -82,7 +84,8 @@ export default function EmployeePage() {
 
   async function makeInactive() {
     if (!exitDate) { notify('Enter the last working day first.', 'err'); return; }
-    if (!confirm(`Mark ${emp.name} inactive from ${fmtDate(exitDate)}? They leave the lists and payroll; the relieving letter and last ${exitMonths} months of payslips are generated and kept.`)) return;
+    if (!(await ask.confirm({ title: `Mark ${emp.name} inactive?`, danger: true, confirmText: 'Mark inactive',
+      message: `From ${fmtDate(exitDate)} they leave the lists and payroll. The relieving letter and the last ${exitMonths} months of payslips are generated and kept.` }))) return;
     setBusyExit(true);
     const { letter, payslips } = buildExit(emp, att, slips, rules, exitDate, exitMonths, todayISO());
     const sb = supabaseBrowser();
@@ -99,12 +102,12 @@ export default function EmployeePage() {
 
   /** Emails one month's payslip to this employee's own address. */
   async function emailOne(data: PayslipData) {
-    if (!emp.email?.trim()) { notify('This employee has no email address. Add it with Edit details first.', 'err'); return; }
-    if (!confirm(`Email the ${monthLabel(data.month)} payslip to ${emp.name} (${emp.email})?`)) return;
+    if (!officialEmailOf(emp)) { notify('This employee has no official mail. Add it with Edit details first.', 'err'); return; }
+    if (!(await ask.confirm({ title: 'Email this payslip?', confirmText: 'Send email', message: `The ${monthLabel(data.month)} payslip goes to ${emp.name} (${officialEmailOf(emp) ?? 'no official mail'}).` }))) return;
     setMailingKey(data.month);
     try {
       const res = await emailPayslips(mailType, [{ employee_id: emp.id, name: emp.name, payslips: [data] }], company);
-      if (res.failed.length) notify(`Could not send: ${res.failed[0].error}`, 'err'); else notify(`Payslip emailed to ${emp.email}`);
+      if (res.failed.length) notify(`Could not send: ${res.failed[0].error}`, 'err'); else notify(`Payslip emailed to ${officialEmailOf(emp)}`);
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), 'err');
     }
@@ -113,14 +116,14 @@ export default function EmployeePage() {
 
   async function emailFnf() {
     if (!exit) return;
-    if (!emp.email?.trim()) { notify('This employee has no email address. Add it with Edit details first.', 'err'); return; }
-    if (!confirm(`Email the final settlement (relieving letter + ${exit.payslips.length} payslip${exit.payslips.length === 1 ? '' : 's'}) to ${emp.email}?`)) return;
+    if (!officialEmailOf(emp)) { notify('This employee has no official mail. Add it with Edit details first.', 'err'); return; }
+    if (!(await ask.confirm({ title: 'Email the final settlement?', confirmText: 'Send email', message: `Relieving letter + ${exit.payslips.length} payslip${exit.payslips.length === 1 ? '' : 's'} go to ${officialEmailOf(emp) ?? 'no official mail'}.` }))) return;
     setMailingFnf(true);
     try {
       const res = await emailPayslips('payslip_fnf', [{
         employee_id: emp.id, name: emp.name, payslips: exit.payslips, letter: exit.letter, lastWorkingDay: exit.relieved_on,
       }], company);
-      if (res.failed.length) notify(`Could not send: ${res.failed[0].error}`, 'err'); else notify(`Final settlement emailed to ${emp.email}`);
+      if (res.failed.length) notify(`Could not send: ${res.failed[0].error}`, 'err'); else notify(`Final settlement emailed to ${officialEmailOf(emp)}`);
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), 'err');
     }
@@ -128,7 +131,7 @@ export default function EmployeePage() {
   }
 
   async function makeActive() {
-    if (!confirm(`Mark ${emp.name} active again? The saved relieving letter and exit payslips will be removed.`)) return;
+    if (!(await ask.confirm({ title: `Mark ${emp.name} active again?`, tone: 'warn', confirmText: 'Make active', message: 'The saved relieving letter and exit payslips will be removed.' }))) return;
     const sb = supabaseBrowser();
     const { error } = await sb.from('employees').update({ archived_at: null }).eq('id', emp.id);
     if (error) { notify(error.message, 'err'); return; }
@@ -138,7 +141,7 @@ export default function EmployeePage() {
   }
 
   async function deleteMonth(a: Attendance) {
-    if (!confirm(`Delete the ${monthLabel(a.month)} attendance record for ${emp.name}?`)) return;
+    if (!(await ask.confirm({ title: 'Delete this attendance record?', danger: true, confirmText: 'Delete', message: `${monthLabel(a.month)} attendance for ${emp.name} is removed.` }))) return;
     const { error } = await supabaseBrowser().from('attendance').delete().eq('id', a.id);
     if (error) notify(error.message, 'err'); else { notify('Deleted'); reload(); }
   }
@@ -231,7 +234,7 @@ export default function EmployeePage() {
               {canEdit && (
                 <div className="row">
                   <button className="btn primary" onClick={() => setAttModal({ month: null })}>+ Add / correct a month</button>
-                  <span className="muted small">Email payslips to {emp.email ? <b>{emp.email}</b> : <b>(no email on file)</b>} using</span>
+                  <span className="muted small">Email payslips to {officialEmailOf(emp) ? <b>{officialEmailOf(emp)}</b> : <b>(no official mail on file)</b>} using</span>
                   <select value={mailType} onChange={e => setMailType(e.target.value as EmailTemplateType)}>
                     {TEMPLATE_META.filter(t => t.type !== 'payslip_fnf').map(t => <option key={t.type} value={t.type}>{t.title}</option>)}
                   </select>

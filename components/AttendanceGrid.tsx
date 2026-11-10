@@ -9,6 +9,7 @@ import { inrWhole, num } from '@/lib/format';
 import { leaveLabel } from '@/lib/leave';
 import type { Attendance, Employee, LeaveRequest } from '@/lib/types';
 
+import { ask } from './Dialog';
 const BRUSHES = [
   { code: 'P', label: 'Present', cls: 'p', key: 'present' },
   { code: 'A', label: 'Absent', cls: 'a', key: 'absent' },
@@ -158,7 +159,7 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved, lea
   /** Last month's arrears / deductions were already settled: stop bringing them forward into this month. */
   async function clearCarry(e: Employee) {
     const cf = carry.get(e.id);
-    if (!confirm(`Mark last month's amounts for ${e.name} as already cleared? They will no longer carry forward into ${monthLabel(month)}.`)) return;
+    if (!(await ask.confirm({ title: 'Mark as already cleared?', message: `Last month's arrears / deductions for ${e.name} will no longer carry forward into ${monthLabel(month)}.`, confirmText: 'Mark cleared', tone: 'warn' }))) return;
     const { error } = await supabaseBrowser().from('attendance').update({ carry_cleared: true })
       .eq('employee_id', e.id).eq('month', shiftMonth(month, -1));
     if (error) { notify(error.message, 'err'); return; }
@@ -195,7 +196,7 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved, lea
                 Fill approved leave ({pendingLeave} day{pendingLeave > 1 ? 's' : ''})
               </button>
             )}
-            <button className="btn sm danger" onClick={() => confirm('Clear every day for everyone shown on screen? (Nothing is saved until you press Save.)') && bulk(() => null)}>Clear all</button>
+            <button className="btn sm danger" onClick={async () => { if (await ask.confirm({ title: 'Clear all days?', message: 'Every day for everyone shown on screen is emptied. Nothing is saved until you press Save.', confirmText: 'Clear all', danger: true })) bulk(() => null); }}>Clear all</button>
             <span className="sp" style={{ flex: 1 }} />
             <input className="field" placeholder="Find employee…" value={q} onChange={e => setQ(e.target.value)} style={{ minWidth: 170 }} />
           </div>

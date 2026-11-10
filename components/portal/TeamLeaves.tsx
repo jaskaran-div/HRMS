@@ -8,6 +8,7 @@ import { fmtDate } from '@/lib/dates';
 import { leaveLabel } from '@/lib/leave';
 import type { LeaveRequest } from '@/lib/types';
 
+import { ask } from '../Dialog';
 export type TeamLeave = LeaveRequest & { name: string; emp_code: string };
 
 /** Team leave requests with the team leader's approve / decline (the server re-checks that the person is in the leader's team). */
@@ -17,7 +18,9 @@ export function TeamLeaves({ rows, showName = true }: { rows: TeamLeave[]; showN
   const [busy, setBusy] = useState<string | null>(null);
 
   async function decide(l: TeamLeave, action: 'approve' | 'reject') {
-    const note = prompt(action === 'reject' ? `Reason for declining ${l.name}'s leave (optional):` : `Note for ${l.name} / HR (optional):`, '');
+    const note = await ask.prompt(action === 'reject'
+      ? { title: `Decline ${l.name}'s leave?`, label: 'Reason (optional, the employee and HR see it)', multiline: true, confirmText: 'Decline', danger: true }
+      : { title: `Approve ${l.name}'s leave?`, label: 'Note for the employee / HR (optional)', multiline: true, confirmText: 'Approve' });
     if (note === null) return;
     setBusy(l.id);
     const res = await fetch('/api/leave', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: l.id, action, note, as: 'tl' }) });

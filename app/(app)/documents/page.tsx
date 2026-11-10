@@ -10,6 +10,7 @@ import { fmtDate } from '@/lib/dates';
 import { fileSize } from '@/lib/format';
 import type { DocumentRow, Employee } from '@/lib/types';
 
+import { ask } from '@/components/Dialog';
 type Emp = Pick<Employee, 'id' | 'emp_code' | 'name' | 'archived_at'>;
 const CATEGORIES = ['Terms & conditions', 'Policy', 'Offer letter', 'Appointment letter', 'ID proof', 'Address proof', 'Education', 'Experience letter', 'Warning letter', 'Other'];
 const MAX = 4 * 1024 * 1024;
@@ -59,7 +60,7 @@ export default function DocumentsPage() {
   }
 
   async function remove(d: DocumentRow) {
-    if (!confirm(`Delete "${d.title}"? The file is moved to the Google Drive trash.`)) return;
+    if (!(await ask.confirm({ title: `Delete "${d.title}"?`, danger: true, confirmText: 'Delete', message: 'The file is moved to the Google Drive trash.' }))) return;
     const res = await fetch(`/api/documents/${d.id}`, { method: 'DELETE' });
     if (!res.ok) { notify((await res.json().catch(() => ({}))).error ?? 'Could not delete', 'err'); return; }
     notify('Deleted'); reload();
