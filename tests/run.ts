@@ -7,7 +7,7 @@ import { amountInWords } from '../lib/format';
 import { daysInMonth, isOffSaturday, toISODate, toMonthStart } from '../lib/dates';
 import * as XLSX from 'xlsx';
 import { rowsFromWorkbook, type SheetRow } from '../lib/sheet';
-import { availableTypes, overallStatus, quotaFor, stageText, validateLeave, workingDays } from '../lib/leave';
+import { availableTypes, canDecideStep, decidedBy, overallStatus, quotaFor, stageText, validateLeave, workingDays } from '../lib/leave';
 import { employedIn } from '../lib/exit';
 
 let passed = 0;
@@ -290,38 +290,32 @@ test('payroll lists only employees employed in the month', () => {
 
 
 
-test('leave: two-step approval (team leader + HR)', () => {
-
+test('leave: first decision wins (team leader or HR)', () => {
   assert.equal(overallStatus('pending', 'pending'), 'pending');
-
-  assert.equal(overallStatus('approved', 'pending'), 'pending');
-
-  assert.equal(overallStatus('pending', 'approved'), 'pending');
-
-  assert.equal(overallStatus('approved', 'approved'), 'approved');
-
+  assert.equal(overallStatus('approved', 'pending'), 'approved');
+  assert.equal(overallStatus('pending', 'approved'), 'approved');
+  assert.equal(overallStatus('rejected', 'pending'), 'rejected');
+  assert.equal(overallStatus('pending', 'rejected'), 'rejected');
   assert.equal(overallStatus('not_required', 'approved'), 'approved');
-
-  assert.equal(overallStatus('rejected', 'approved'), 'rejected');
-
-  assert.equal(overallStatus('approved', 'rejected'), 'rejected');
-
-  const s = (tl: 'pending' | 'approved' | 'rejected' | 'not_required', hr: 'pending' | 'approved' | 'rejected') =>
-
-    stageText({ status: overallStatus(tl, hr), tl_status: tl, hr_status: hr, tl_by_name: 'Aman', hr_by_name: 'Riya' });
-
-  assert.equal(s('pending', 'pending'), 'Pending with team leader & HR');
-
-  assert.equal(s('approved', 'pending'), 'Team leader approved (Aman) · pending with HR');
-
-  assert.equal(s('pending', 'approved'), 'HR approved (Riya) · pending with team leader');
-
-  assert.equal(s('approved', 'approved'), 'Approved by team leader & HR');
-
-  assert.equal(s('not_required', 'pending'), 'Pending with HR');
-
-  assert.equal(s('rejected', 'approved'), 'Declined by team leader (Aman)');
-
+  assert.equal(overallStatus('not_required', 'pending'), 'pending');
+  const r = (tl: 'pending' | 'approved' | 'rejected' | 'not_required', hr: 'pending' | 'approved' | 'rejected') =>
+    ({ status: overallStatus(tl, hr), tl_status: tl, hr_status: hr, tl_by_name: 'Aman', hr_by_name: 'Riya' });
+  assert.equal(stageText(r('pending', 'pending')), 'Pending with team leader or HR');
+  assert.equal(stageText(r('not_required', 'pending')), 'Pending with HR');
+  assert.equal(stageText(r('approved', 'pending')), 'Approved by team leader (Aman)');
+  assert.equal(stageText(r('pending', 'approved')), 'Approved by HR (Riya)');
+  assert.equal(stageText(r('rejected', 'pending')), 'Declined by team leader (Aman)');
+  assert.equal(stageText(r('pending', 'rejected')), 'Declined by HR (Riya)');
+  // once decided, only the one who decided can still act; the other side's buttons go away
+  assert.equal(canDecideStep(r('pending', 'pending'), 'tl'), true);
+  assert.equal(canDecideStep(r('pending', 'pending'), 'hr'), true);
+  assert.equal(canDecideStep(r('approved', 'pending'), 'hr'), false);
+  assert.equal(canDecideStep(r('approved', 'pending'), 'tl'), true);
+  assert.equal(canDecideStep(r('pending', 'rejected'), 'tl'), false);
+  assert.equal(canDecideStep(r('pending', 'rejected'), 'hr'), true);
+  assert.equal(canDecideStep(r('not_required', 'pending'), 'tl'), false);
+  assert.equal(decidedBy(r('approved', 'pending')), 'tl');
+  assert.equal(decidedBy(r('pending', 'rejected')), 'hr');
 });
 
 

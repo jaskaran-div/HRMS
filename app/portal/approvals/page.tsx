@@ -19,7 +19,7 @@ export default async function Approvals() {
     : { data: [] };
   const rows: TeamLeave[] = ((data ?? []) as LeaveRequest[]).map(l => ({ ...l, name: by.get(l.employee_id)?.name ?? '', emp_code: by.get(l.employee_id)?.emp_code ?? '' }));
   const mine = rows.filter(r => r.status === 'pending' && r.tl_status === 'pending');
-  const hrOnly = rows.filter(r => r.status === 'pending' && r.tl_status !== 'pending');
+  const hrOnly = rows.filter(r => r.status === 'pending' && r.tl_status === 'not_required');
   return (
     <>
       <div className="card">
@@ -28,14 +28,14 @@ export default async function Approvals() {
       </div>
       {hrOnly.length > 0 && (
         <div className="card">
-          <h3>Done by you · waiting for HR ({hrOnly.length})</h3>
+          <h3>Waiting for HR ({hrOnly.length})</h3>
           <TeamLeaves rows={hrOnly} />
         </div>
       )}
       <div className="card">
         <h3>Team leave · last 3 months</h3>
         <TeamLeaves rows={rows.filter(r => r.status !== 'pending')} />
-        <p className="muted small">Leave needs your approval and HR&apos;s (in any order); a decline from either declines it. You can change your decision later. The employee is emailed once the outcome is final.</p>
+        <p className="muted small">You or HR can approve or decline a request — whoever decides first settles it, and the other side&apos;s buttons go away. You can change your own decision later. The employee is emailed the outcome, and HR is told you decided.</p>
       </div>
     </>
   );

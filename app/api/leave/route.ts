@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { teamIds } from '@/lib/portal';
-import { overallStatus, validateLeave, type LeaveInput } from '@/lib/leave';
+import { canDecideStep, decidedBy, validateLeave, type LeaveInput } from '@/lib/leave';
 import { emailLeaveCancelled, emailLeaveDecision, emailLeaveRequest, emailLeaveStep } from '@/lib/leave-mail';
 import { appUrl } from '@/lib/notify-mail';
 import { todayISO } from '@/lib/dates';
@@ -65,8 +65,9 @@ export async function POST(req: Request) {
 /**
  * Body: { id, action: 'approve' | 'reject' | 'cancel' | 'email', note?, as?: 'hr' | 'tl', count_as?: 'paid' | 'unpaid' }
  * count_as (HR approving a paid / absent request): what the leave counts as in attendance — paid leave or absent.
- * approve / reject decide ONE step: HR's (admin / editor) or the team leader's (a team leader above the employee).
- *   The overall status follows from both steps. `as` picks the step when someone could do both.
+ * approve / reject: HR (admin / editor) or the team leader (a team leader above the employee). The FIRST decision
+ *   settles the request; the other side can then no longer approve / decline (the one who decided may change it).
+ *   HR can still switch an approved leave between paid and absent. `as` picks the step when someone could do both.
  * cancel / email: the employee, for their own pending request.
  */
 export async function PATCH(req: Request) {
@@ -102,25 +103,44 @@ export async function PATCH(req: Request) {
   const step: 'hr' | 'tl' | null = b.as === 'tl' ? (canTl ? 'tl' : null) : b.as === 'hr' ? (canHr ? 'hr' : null) : canHr ? 'hr' : canTl ? 'tl' : null;
   if (!step) return NextResponse.json({ error: 'You cannot decide this request.' }, { status: 403 });
 
-  const decision = b.action === 'approve' ? 'approved' : 'rejected';
-  // HR may approve a paid-leave request as absent (or an absent request as paid leave); short leave stays short leave
-  const countAs = step === 'hr' && decision === 'approved' && l.leave_type !== 'short' && (b.count_as === 'paid' || b.count_as === 'unpaid') ? b.count_as : null;
   const note = (b.note ?? '').trim().slice(0, 500) || null;
   const now = new Date().toISOString();
-  const tl = step === 'tl' ? decision : l.tl_status;
-  const hr = step === 'hr' ? decision : l.hr_status;
-  const status = overallStatus(tl, hr);
+  const validCountAs = l.leave_type !== 'short' && (b.count_as === 'paid' || b.count_as === 'unpaid') ? b.count_as : null;
+
+  // HR changing whether an approved leave counts as paid leave or absent — allowed whoever approved it
+  if (step === 'hr' && b.action === 'approve' && l.status === 'approved' && validCountAs && decidedBy(l) !== 'hr') {
+    if (validCountAs === l.leave_type) return NextResponse.json({ ok: true, leave: l, step });
+    const { data: updated, error } = await admin.from('leave_requests')
+      .update({ leave_type: validCountAs, requested_type: l.requested_type ?? l.leave_type })
+      .eq('id', l.id).eq('status', 'approved').select('*').maybeSingle();
+    if (error || !updated) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
+    await log(g.profile, 'HR_RECOUNT_LEAVE', l.id, { employee_id: l.employee_id, counted_as: validCountAs });
+    return NextResponse.json({ ok: true, leave: updated, step });
+  }
+
+  // first decision wins: once the team leader or HR has decided, the other can no longer approve / decline
+  if (!canDecideStep(l, step)) {
+    const other = decidedBy(l) === 'tl' ? 'the team leader' : 'HR';
+    return NextResponse.json({ error: `This request was already ${l.status === 'approved' ? 'approved' : 'declined'} by ${other}.` }, { status: 409 });
+  }
+
+  const decision = b.action === 'approve' ? 'approved' : 'rejected';
+  // HR may approve a paid-leave request as absent (or an absent request as paid leave); short leave stays short leave
+  const countAs = step === 'hr' && decision === 'approved' ? validCountAs : null;
+  const status = decision;
   const { data: updated, error } = await admin.from('leave_requests').update({
     ...(step === 'tl'
       ? { tl_status: decision, tl_by: g.user.id, tl_by_name: g.profile.full_name, tl_at: now, tl_note: note }
       : { hr_status: decision, hr_by: g.user.id, hr_by_name: g.profile.full_name, hr_at: now, hr_note: note }),
     ...(countAs ? { leave_type: countAs, requested_type: l.requested_type ?? l.leave_type } : {}),
     status, decided_by: g.user.id, decided_by_name: g.profile.full_name, decided_at: now, decision_note: note,
-  }).eq('id', l.id).select('*').single();
-  if (error || !updated) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
+  }).eq('id', l.id).eq('status', l.status).select('*').maybeSingle(); // guards against the other side deciding at the same moment
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!updated) return NextResponse.json({ error: 'Someone else decided this request just now. Refresh to see the result.' }, { status: 409 });
   await log(g.profile, `${step.toUpperCase()}_${decision === 'approved' ? 'APPROVE' : 'REJECT'}_LEAVE`, l.id, { employee_id: l.employee_id, status, ...(countAs ? { counted_as: countAs } : {}) });
-  // the employee hears about it once the overall outcome is known (or changes)
-  if (status !== l.status && status !== 'pending') await emailLeaveDecision(updated as LeaveRequest);
-  else if (status === 'pending') await emailLeaveStep(updated as LeaveRequest, step, appUrl(req)); // tell whoever decides next
+  if (status !== l.status) {
+    await emailLeaveDecision(updated as LeaveRequest); // the employee hears the outcome
+    if (l.status === 'pending') await emailLeaveStep(updated as LeaveRequest, step, appUrl(req)); // the other side: no action needed
+  }
   return NextResponse.json({ ok: true, leave: updated, step });
 }

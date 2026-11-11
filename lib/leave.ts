@@ -101,26 +101,44 @@ export function validateLeave(
   return { ok: true, days, overQuota: t === 'paid' && days > q.paidLeft };
 }
 
-type Steps = Pick<LeaveRequest, 'status' | 'tl_status' | 'hr_status' | 'tl_by_name' | 'hr_by_name'>;
+type Steps = Pick<LeaveRequest, 'status' | 'tl_status' | 'hr_status' | 'tl_by_name' | 'hr_by_name'> & Partial<Pick<LeaveRequest, 'tl_at' | 'hr_at'>>;
 
-/** Overall status from the two steps. */
+/**
+ * Overall status from the two steps. The FIRST decision wins: whichever of the team leader or HR approves / declines
+ * first settles the request, and the other no longer needs to act. (Old rows where both decided differently: declined.)
+ */
 export function overallStatus(tl: LeaveRequest['tl_status'], hr: LeaveRequest['hr_status']): Exclude<LeaveStatus, 'cancelled'> {
   if (tl === 'rejected' || hr === 'rejected') return 'rejected';
-  if (hr === 'approved' && (tl === 'approved' || tl === 'not_required')) return 'approved';
+  if (tl === 'approved' || hr === 'approved') return 'approved';
   return 'pending';
 }
 
-/** One line everyone sees, e.g. "Team leader approved · pending with HR". */
+/** Which step settled a decided request ('tl' / 'hr'), or null while nobody has decided. */
+export function decidedBy(l: Steps): 'tl' | 'hr' | null {
+  const tl = l.tl_status === 'approved' || l.tl_status === 'rejected';
+  const hr = l.hr_status === 'approved' || l.hr_status === 'rejected';
+  if (tl && hr) return (l.tl_at ?? '') >= (l.hr_at ?? '') ? 'tl' : 'hr'; // old rows: the latest decision
+  return tl ? 'tl' : hr ? 'hr' : null;
+}
+
+/** May this step (still) approve / decline? Anyone while pending; afterwards only the one who decided (to change their mind). */
+export function canDecideStep(l: Steps, step: 'tl' | 'hr'): boolean {
+  if (l.status === 'cancelled') return false;
+  if (step === 'tl' && l.tl_status === 'not_required') return false;
+  if (l.status === 'pending') return true;
+  return decidedBy(l) === step;
+}
+
+/** One line everyone sees, e.g. "Approved by team leader (Aman)". */
 export function stageText(l: Steps): string {
   if (l.status === 'cancelled') return 'Cancelled by employee';
   const tlName = l.tl_by_name ? ` (${l.tl_by_name})` : '';
   const hrName = l.hr_by_name ? ` (${l.hr_by_name})` : '';
-  if (l.tl_status === 'rejected') return `Declined by team leader${tlName}`;
-  if (l.hr_status === 'rejected') return `Declined by HR${hrName}`;
-  const noTl = l.tl_status === 'not_required';
-  if (l.hr_status === 'approved' && (noTl || l.tl_status === 'approved')) return noTl ? `Approved by HR${hrName}` : 'Approved by team leader & HR';
-  if (noTl) return 'Pending with HR';
-  if (l.tl_status === 'approved') return `Team leader approved${tlName} · pending with HR`;
-  if (l.hr_status === 'approved') return `HR approved${hrName} · pending with team leader`;
-  return 'Pending with team leader & HR';
+  const by = decidedBy(l);
+  if (by && l.status !== 'pending') {
+    const word = l.status === 'approved' ? 'Approved' : 'Declined';
+    return by === 'tl' ? `${word} by team leader${tlName}` : `${word} by HR${hrName}`;
+  }
+  if (l.tl_status === 'not_required') return 'Pending with HR';
+  return 'Pending with team leader or HR';
 }

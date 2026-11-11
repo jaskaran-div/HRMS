@@ -9,7 +9,7 @@ import { supabaseBrowser } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/fetch-all';
 import { useLoad } from '@/lib/use-load';
 import { currentYM, fmtDate, monthLabel, monthStart, shiftMonth } from '@/lib/dates';
-import { leaveLabel } from '@/lib/leave';
+import { canDecideStep, decidedBy, leaveLabel } from '@/lib/leave';
 import type { LeaveRequest } from '@/lib/types';
 
 import { ask } from '@/components/Dialog';
@@ -17,8 +17,8 @@ type Row = LeaveRequest & { employees: { name: string; emp_code: string; departm
 
 const FILTERS = {
   '': { label: 'All', test: () => true },
-  hr: { label: 'Pending with HR', test: (l: Row) => l.status === 'pending' && l.hr_status === 'pending' },
-  tl: { label: 'Pending with team leader', test: (l: Row) => l.status === 'pending' && l.tl_status === 'pending' },
+  pending: { label: 'Pending', test: (l: Row) => l.status === 'pending' },
+  tl: { label: 'Decided by team leader', test: (l: Row) => l.status !== 'pending' && l.status !== 'cancelled' && decidedBy(l) === 'tl' },
   approved: { label: 'Approved', test: (l: Row) => l.status === 'approved' },
   rejected: { label: 'Declined', test: (l: Row) => l.status === 'rejected' },
   cancelled: { label: 'Cancelled', test: (l: Row) => l.status === 'cancelled' },
@@ -46,8 +46,7 @@ export default function LeavesPage() {
       .eq('status', 'pending').order('start_date').limit(300);
     return (data ?? []) as Row[];
   }, [data]);
-  const forHr = open.filter(FILTERS.hr.test);
-  const forTl = open.filter(l => l.hr_status !== 'pending' && l.tl_status === 'pending');
+  const forHr = open.filter(FILTERS.pending.test);
 
   const list = useMemo(() => data.filter(l => FILTERS[filter].test(l) &&
     (!q.trim() || [l.employees?.name, l.employees?.emp_code, l.employees?.department].some(x => (x ?? '').toLowerCase().includes(q.trim().toLowerCase())))), [data, filter, q]);
@@ -76,19 +75,21 @@ export default function LeavesPage() {
       <td style={{ maxWidth: 240 }}>{l.reason || <span className="muted">—</span>}</td>
       <td><LeaveStatus l={l} /></td>
       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-        {canEdit && l.status !== 'cancelled' && <>
-          {l.hr_status !== 'approved' && (l.leave_type === 'short'
+        {canEdit && canDecideStep(l, 'hr') && <>
+          {l.status !== 'approved' && (l.leave_type === 'short'
             ? <button className="btn sm primary" disabled={busy === l.id} onClick={() => decide(l, 'approve')}>Approve (HR)</button>
             : <>
                 <button className="btn sm primary" disabled={busy === l.id} title="Approve; the days count as paid leave (no salary cut)" onClick={() => decide(l, 'approve', 'paid')}>Approve – paid</button>{' '}
                 <button className="btn sm" disabled={busy === l.id} title="Approve; the days count as absent (salary cut)" onClick={() => decide(l, 'approve', 'unpaid')}>Approve – absent</button>
               </>)}{' '}
-          {l.hr_status === 'approved' && l.leave_type !== 'short' && (
+          {l.status !== 'rejected' && <button className="btn sm danger" disabled={busy === l.id} onClick={() => decide(l, 'reject')}>Decline (HR)</button>}
+        </>}{' '}
+        {/* whoever approved it, HR can still switch it between paid leave and absent */}
+        {canEdit && l.status === 'approved' && l.leave_type !== 'short' && (
             <button className="btn sm" disabled={busy === l.id} title="Change whether this leave counts as paid leave or absent"
               onClick={() => decide(l, 'approve', l.leave_type === 'paid' ? 'unpaid' : 'paid')}>Count as {l.leave_type === 'paid' ? 'absent' : 'paid'}</button>
-          )}{' '}
-          {l.hr_status !== 'rejected' && <button className="btn sm danger" disabled={busy === l.id} onClick={() => decide(l, 'reject')}>Decline (HR)</button>}
-        </>}
+        )}
+        {(l.status === 'approved' || l.status === 'rejected') && decidedBy(l) === 'tl' && <div className="muted small">Decided by team leader</div>}
       </td>
     </tr>
   );
@@ -104,14 +105,8 @@ export default function LeavesPage() {
 
       {forHr.length > 0 && (
         <div className="card">
-          <h3>Waiting for HR ({forHr.length})</h3>
+          <h3>Waiting for a decision — team leader or HR ({forHr.length})</h3>
           <div className="tbl-wrap"><table>{head}<tbody>{forHr.map(row)}</tbody></table></div>
-        </div>
-      )}
-      {forTl.length > 0 && (
-        <div className="card">
-          <h3>HR done · waiting for the team leader ({forTl.length})</h3>
-          <div className="tbl-wrap"><table>{head}<tbody>{forTl.map(row)}</tbody></table></div>
         </div>
       )}
 
@@ -134,8 +129,8 @@ export default function LeavesPage() {
         </div>
         <p className="muted small">
           Paid leave beyond the monthly allowance can still be requested — choose <b>Approve – paid</b> (no salary cut) or <b>Approve – absent</b>.
-          Paid leave marked in attendance (L) never cuts salary, however many there are. Each request needs the team leader&apos;s and HR&apos;s approval (in any order); a decline from either one declines it. Employees with no team leader login
-          only need HR. Both see each other&apos;s decision. Approved leave is a record only — mark the attendance as usual.
+          Paid leave marked in attendance (L) never cuts salary, however many there are. The team leader or HR can approve or decline a request — whoever decides first settles it, the other side&apos;s
+          Approve / Decline buttons go away and they get an email saying it was already decided. Employees with no team leader login only need HR. Approved leave is a record only — mark the attendance as usual.
         </p>
       </div>
     </>

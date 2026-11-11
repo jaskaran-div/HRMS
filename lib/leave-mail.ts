@@ -51,7 +51,7 @@ ${table([
     ['Reason', l.reason?.trim() || '—'],
   ])}
 ${l.tl_status === 'pending'
-    ? `<p>Both the team leader and HR approve or decline it in the HR Portal — team leader: <a href="${escapeHtml(origin)}/portal/approvals" style="color:#127a5f">Leave approvals</a>, HR: <a href="${escapeHtml(origin)}/leaves" style="color:#127a5f">Leave history</a>.</p>`
+    ? `<p>The team leader or HR can approve or decline it — whoever decides first settles it, and the other is informed. Team leader: <a href="${escapeHtml(origin)}/portal/approvals" style="color:#127a5f">Leave approvals</a>, HR: <a href="${escapeHtml(origin)}/leaves" style="color:#127a5f">Leave history</a>.</p>`
     : `<p>HR approves or declines it in the HR Portal: <a href="${escapeHtml(origin)}/leaves" style="color:#127a5f">Leave history</a>.</p>`}`;
   const html = wrapEmail(body, s.company_name);
   const { from, replyTo } = senderOf(s);
@@ -122,28 +122,27 @@ async function send(s: Settings, to: (string | null | undefined)[], subject: str
 }
 
 /**
- * One approval step was decided while the other is still open: tell whoever is next.
- * Team leader decided → HR; HR decided first → the team leader.
+ * The team leader or HR decided first, which settles the request. Tell the OTHER side, for information only:
+ * "Team leader Aman has already approved Riya's leave — no action needed."
  */
 export async function emailLeaveStep(l: LeaveRequest, step: 'hr' | 'tl', origin: string): Promise<void> {
-  if (!mailConfigured() || l.status !== 'pending') return;
+  if (!mailConfigured() || l.status === 'pending' || l.status === 'cancelled') return;
   const p = await parties(l);
   if (!p) return;
-  const nextIsHr = step === 'tl' && l.hr_status === 'pending';
-  const nextIsTl = step === 'hr' && l.tl_status === 'pending';
-  if (!nextIsHr && !nextIsTl) return;
+  const toHr = step === 'tl';
+  if (!toHr && l.tl_status === 'not_required') return; // no team leader step: nobody else to tell
   const who = step === 'tl' ? `Team leader ${l.tl_by_name ?? ''}`.trim() : `HR (${l.hr_by_name ?? 'HR'})`;
-  const decision = (step === 'tl' ? l.tl_status : l.hr_status) === 'approved' ? 'approved' : 'declined';
+  const decision = l.status === 'approved' ? 'approved' : 'declined';
   const note = step === 'tl' ? l.tl_note : l.hr_note;
-  const link = nextIsHr ? `${origin}/leaves` : `${origin}/portal/approvals`;
-  const body = `<p><b>Hello${nextIsTl && p.lead?.name ? ` ${escapeHtml(p.lead.name)}` : ''},</b></p>
-<p>${escapeHtml(who)} has <b>${decision}</b> ${escapeHtml(p.e.name)}'s leave request. It is now waiting for ${nextIsHr ? 'HR' : 'you'}.</p>
+  const link = toHr ? `${origin}/leaves` : `${origin}/portal/approvals`;
+  const body = `<p><b>Hello${!toHr && p.lead?.name ? ` ${escapeHtml(p.lead.name)}` : ''},</b></p>
+<p>${escapeHtml(who)} has already <b>${decision}</b> ${escapeHtml(p.e.name)}'s leave request. It counts as ${decision} — no action is needed from you.</p>
 ${table([
     ['Employee', `${p.e.name} (${p.e.emp_code})`], ['Leave type', leaveLabel(l.leave_type)], ['Date(s)', when(l)], ['Working days', String(l.days)],
     ['Reason', l.reason?.trim() || '—'], ...(note ? [['Note', note] as [string, string]] : []),
   ])}
-<p><a href="${escapeHtml(link)}" style="color:#2f6bff">Review it in the HR Portal</a></p>`;
-  await send(p.s, nextIsHr ? [hrAddress(p.s)] : [p.lead?.email], `Leave waiting for ${nextIsHr ? 'HR' : 'you'}: ${p.e.name} — ${when(l)}`, body, p.e.email);
+<p><a href="${escapeHtml(link)}" style="color:#2f6bff">View it in the HR Portal</a></p>`;
+  await send(p.s, toHr ? [hrAddress(p.s)] : [p.lead?.email], `Leave already ${decision} by ${step === 'tl' ? 'team leader' : 'HR'}: ${p.e.name} — ${when(l)}`, body, p.e.email);
 }
 
 /** The employee cancelled a pending request: the team leader and HR do not need to act any more. */

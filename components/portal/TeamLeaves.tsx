@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '../AppContext';
 import { LeaveStatus } from '../LeaveStatus';
 import { fmtDate } from '@/lib/dates';
-import { leaveLabel } from '@/lib/leave';
+import { canDecideStep, decidedBy, leaveLabel } from '@/lib/leave';
 import type { LeaveRequest } from '@/lib/types';
 
 import { ask } from '../Dialog';
@@ -27,7 +27,7 @@ export function TeamLeaves({ rows, showName = true }: { rows: TeamLeave[]; showN
     const j = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok) { notify(j.error ?? 'Could not save', 'err'); return; }
-    notify(action === 'approve' ? `You approved ${l.name}'s leave${j.leave?.status === 'pending' ? ' · now waiting for HR' : ''}` : `You declined ${l.name}'s leave`);
+    notify(action === 'approve' ? `You approved ${l.name}'s leave` : `You declined ${l.name}'s leave`);
     router.refresh();
   }
 
@@ -45,10 +45,11 @@ export function TeamLeaves({ rows, showName = true }: { rows: TeamLeave[]; showN
               <td>{l.reason || <span className="muted">—</span>}</td>
               <td><LeaveStatus l={l} /></td>
               <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                {l.status !== 'cancelled' && l.tl_status !== 'not_required' && <>
-                  {l.tl_status !== 'approved' && <button className="btn sm primary" disabled={busy === l.id} onClick={() => decide(l, 'approve')}>Approve</button>}{' '}
-                  {l.tl_status !== 'rejected' && <button className="btn sm danger" disabled={busy === l.id} onClick={() => decide(l, 'reject')}>Decline</button>}
+                {canDecideStep(l, 'tl') && <>
+                  {l.status !== 'approved' && <button className="btn sm primary" disabled={busy === l.id} onClick={() => decide(l, 'approve')}>Approve</button>}{' '}
+                  {l.status !== 'rejected' && <button className="btn sm danger" disabled={busy === l.id} onClick={() => decide(l, 'reject')}>Decline</button>}
                 </>}
+                {(l.status === 'approved' || l.status === 'rejected') && decidedBy(l) === 'hr' && <span className="muted small">Decided by HR</span>}
               </td>
             </tr>
           ))}
