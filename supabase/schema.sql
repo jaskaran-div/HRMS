@@ -215,52 +215,13 @@ drop policy if exists exit_delete on public.exit_records;
 create policy exit_delete on public.exit_records for delete to authenticated using (public.can_edit());
 
 ------------------------------------------------------------------------------
--- Audit trail: who changed what (protects against "I didn't know I did that")
+-- Activity log removed: drop the old audit triggers, function and table
 ------------------------------------------------------------------------------
-create table if not exists public.audit_log (
-  id bigint generated always as identity primary key,
-  at timestamptz not null default now(),
-  user_id uuid,
-  username text,
-  table_name text not null,
-  op text not null,
-  row_id text,
-  old_data jsonb,
-  new_data jsonb
-);
-create index if not exists audit_log_at_idx on public.audit_log (at desc);
-
-create or replace function public.log_change() returns trigger
-language plpgsql security definer set search_path = public as $$
-declare
-  v_old jsonb;
-  v_new jsonb;
-  v_user text;
-begin
-  if tg_op in ('UPDATE', 'DELETE') then v_old := to_jsonb(old); end if;
-  if tg_op in ('INSERT', 'UPDATE') then v_new := to_jsonb(new); end if;
-  if tg_table_name = 'settings' then      -- don't copy the logo image into the log
-    v_old := v_old - 'logo';
-    v_new := v_new - 'logo';
-  end if;
-  select username into v_user from public.profiles where id = auth.uid();
-  insert into public.audit_log (user_id, username, table_name, op, row_id, old_data, new_data)
-  values (auth.uid(), v_user, tg_table_name, tg_op, coalesce(v_new ->> 'id', v_old ->> 'id'), v_old, v_new);
-  if tg_op = 'DELETE' then return old; end if;
-  return new;
-end $$;
-
 drop trigger if exists employees_audit on public.employees;
-create trigger employees_audit after insert or update or delete on public.employees
-  for each row execute function public.log_change();
-
 drop trigger if exists attendance_audit on public.attendance;
-create trigger attendance_audit after insert or update or delete on public.attendance
-  for each row execute function public.log_change();
-
 drop trigger if exists settings_audit on public.settings;
-create trigger settings_audit after update on public.settings
-  for each row execute function public.log_change();
+drop function if exists public.log_change() cascade;
+drop table if exists public.audit_log;
 
 ------------------------------------------------------------------------------
 -- Row Level Security: nobody reads or writes anything unless a policy says so
@@ -270,7 +231,6 @@ alter table public.settings enable row level security;
 alter table public.employees enable row level security;
 alter table public.attendance enable row level security;
 alter table public.payslips enable row level security;
-alter table public.audit_log enable row level security;
 
 -- profiles: you can read your own row; admins read all. Writes only via the server (service role).
 drop policy if exists profiles_read on public.profiles;
@@ -315,10 +275,6 @@ create policy payslips_insert on public.payslips for insert to authenticated wit
 drop policy if exists payslips_update on public.payslips;
 create policy payslips_update on public.payslips for update to authenticated
   using (public.can_edit()) with check (public.can_edit());
-
--- audit log: admins read; rows are only ever written by the trigger
-drop policy if exists audit_read on public.audit_log;
-create policy audit_read on public.audit_log for select to authenticated using (public.is_admin());
 
 ------------------------------------------------------------------------------
 -- Team leader & employee panels + leave requests
@@ -385,10 +341,6 @@ drop policy if exists leave_update on public.leave_requests;
 create policy leave_update on public.leave_requests for update to authenticated
   using (public.can_edit()) with check (public.can_edit());
 
-drop trigger if exists leave_audit on public.leave_requests;
-create trigger leave_audit after insert or update or delete on public.leave_requests
-  for each row execute function public.log_change();
-
 ------------------------------------------------------------------------------
 -- Documents (files live in Google Drive; this table says what they are and who may see them)
 -- employee_id null = company document (terms & conditions, policies…) visible to every login.
@@ -412,10 +364,6 @@ alter table public.documents enable row level security;
 -- HR staff read from the browser; uploads, deletes and every download go through /api/documents
 drop policy if exists documents_read on public.documents;
 create policy documents_read on public.documents for select to authenticated using (public.can_read());
-
-drop trigger if exists documents_audit on public.documents;
-create trigger documents_audit after insert or update or delete on public.documents
-  for each row execute function public.log_change();
 
 ------------------------------------------------------------------------------
 -- Two-step leave approval: team leader + HR, each approve / decline independently.

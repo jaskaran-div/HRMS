@@ -26,7 +26,6 @@ const ADMIN_NAV: NavItem[] = [
   { href: '/settings', icon: 'building', label: 'Company & Rules', sub: 'Company details, logo, pay and leave rules.' },
   { href: '/customisations', icon: 'mail', label: 'Customisations', sub: 'Email templates and the sender address.' },
   { href: '/users', icon: 'key', label: 'User Access', sub: 'Logins for HR, team leaders and employees.' },
-  { href: '/activity', icon: 'history', label: 'Activity Log', sub: 'Who changed what, and when.' },
 ];
 const EXTRA: Omit<NavItem, 'icon'>[] = [
   { href: '/change-password', label: 'Change password', sub: '' },

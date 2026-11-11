@@ -58,9 +58,5 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }
-  await admin.from('audit_log').insert({
-    user_id: g.user.id, username: g.profile.username, table_name: 'email', op: 'SEND_EMAIL', row_id: emp.id,
-    new_data: { employee: emp.emp_code, to, subject: fillTemplate(subject, vars, false), attachments: attachments.map(a => a.filename) },
-  });
   return NextResponse.json({ ok: true, to });
 }

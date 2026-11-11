@@ -17,9 +17,6 @@ async function checkEmployee(admin: ReturnType<typeof supabaseAdmin>, employeeId
   return null;
 }
 
-const log = (admin: ReturnType<typeof supabaseAdmin>, by: { id: string; username: string }, op: string, rowId: string, data: object) =>
-  admin.from('audit_log').insert({ user_id: by.id, username: by.username, table_name: 'users', op, row_id: rowId, new_data: data });
-
 /** Create a login. Password is generated from the username: jaskaran -> Jaskaran@isft */
 export async function POST(req: Request) {
   const g = await guard(['admin']);
@@ -62,7 +59,6 @@ export async function POST(req: Request) {
     await admin.auth.admin.deleteUser(created.user.id);
     return NextResponse.json({ error: pErr.message }, { status: 400 });
   }
-  await log(admin, g.profile, 'CREATE_USER', created.user.id, { username, role, employee_id });
   let mail: MailResult | null = null;
   if (body.send_email !== false) {
     const to = await accountAddress({ email, employee_id });
@@ -103,7 +99,6 @@ export async function PATCH(req: Request) {
       const { error } = await admin.auth.admin.updateUserById(id, { password });
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
       await admin.from('profiles').update({ must_change_password: true }).eq('id', id);
-      await log(admin, g.profile, 'RESET_PASSWORD', id, { username: target.username });
       return NextResponse.json({ username: target.username, password, mail: await mailPassword(password, true) });
     }
     case 'set_password': {
@@ -114,7 +109,6 @@ export async function PATCH(req: Request) {
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
       const must = self ? false : must_change_password !== false;
       await admin.from('profiles').update({ must_change_password: must }).eq('id', id);
-      await log(admin, g.profile, 'SET_PASSWORD', id, { username: target.username, must_change_password: must });
       return NextResponse.json({ username: target.username, password: pw, mail: await mailPassword(pw, must) });
     }
     case 'set_employee': {
@@ -125,14 +119,12 @@ export async function PATCH(req: Request) {
         if (bad) return NextResponse.json({ error: bad }, { status: 409 });
       }
       await admin.from('profiles').update({ employee_id: emp }).eq('id', id);
-      await log(admin, g.profile, 'LINK_EMPLOYEE', id, { username: target.username, employee_id: emp });
       return NextResponse.json({ ok: true });
     }
     case 'set_email': {
       const e = (email ?? '').trim() || null;
       if (e && !validEmail(e)) return NextResponse.json({ error: 'That email address does not look right.' }, { status: 400 });
       await admin.from('profiles').update({ email: e }).eq('id', id);
-      await log(admin, g.profile, 'SET_EMAIL', id, { username: target.username, email: e });
       return NextResponse.json({ ok: true });
     }
     case 'delete': {
@@ -145,20 +137,17 @@ export async function PATCH(req: Request) {
       const { error } = await admin.auth.admin.deleteUser(id);
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
       await admin.from('profiles').delete().eq('id', id); // normally removed by the cascade already
-      await log(admin, g.profile, 'DELETE_USER', id, { username: target.username, role: target.role, employee_id: target.employee_id });
       return NextResponse.json({ ok: true });
     }
     case 'deactivate': {
       if (self) return NextResponse.json({ error: 'You cannot disable your own login.' }, { status: 400 });
       await admin.auth.admin.updateUserById(id, { ban_duration: '876000h' });
       await admin.from('profiles').update({ active: false }).eq('id', id);
-      await log(admin, g.profile, 'DEACTIVATE_USER', id, { username: target.username });
       return NextResponse.json({ ok: true, mail: await emailAccountStatus(target as Profile, false, url) });
     }
     case 'activate': {
       await admin.auth.admin.updateUserById(id, { ban_duration: 'none' });
       await admin.from('profiles').update({ active: true }).eq('id', id);
-      await log(admin, g.profile, 'ACTIVATE_USER', id, { username: target.username });
       return NextResponse.json({ ok: true, mail: await emailAccountStatus(target as Profile, true, url) });
     }
     case 'set_role': {
@@ -167,7 +156,6 @@ export async function PATCH(req: Request) {
       if (NEEDS_EMPLOYEE.includes(role) && !target.employee_id)
         return NextResponse.json({ error: 'Link this login to an employee first (Employee column).' }, { status: 400 });
       await admin.from('profiles').update({ role }).eq('id', id);
-      await log(admin, g.profile, 'SET_ROLE', id, { username: target.username, role });
       return NextResponse.json({ ok: true });
     }
     default:

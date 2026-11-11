@@ -8,7 +8,7 @@ import { appUrl } from '@/lib/notify-mail';
 import { fmtDate, todayISO } from '@/lib/dates';
 import { leaveLabel } from '@/lib/leave';
 import { hrUsers, leadUserOf, notifyUsers, usersOfEmployees } from '@/lib/push';
-import type { LeaveRequest, Profile, Settings } from '@/lib/types';
+import type { LeaveRequest, Settings } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,9 +19,6 @@ async function employeeName(id: string): Promise<string> {
   const { data } = await supabaseAdmin().from('employees').select('name').eq('id', id).maybeSingle();
   return (data?.name as string | undefined) ?? 'An employee';
 }
-
-const log = (by: Profile, op: string, rowId: string, data: object) =>
-  supabaseAdmin().from('audit_log').insert({ user_id: by.id, username: by.username, table_name: 'leave_requests', op, row_id: rowId, new_data: data });
 
 /** Does the employee's team leader have an active team leader login (so their approval step applies)? */
 async function hasLeadStep(employeeId: string): Promise<boolean> {
@@ -65,7 +62,6 @@ export async function POST(req: Request) {
     tl_status: leadStep ? 'pending' : 'not_required', hr_status: 'pending', status: 'pending',
   }).select('*').single();
   if (error || !row) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
-  await log(g.profile, 'APPLY_LEAVE', row.id, { type: input.leave_type, from: input.start_date, to: input.end_date, days: v.days, over_quota: v.overQuota });
 
   // push: the team leader (who can decide in the app) and HR
   const name = await employeeName(empId);
@@ -73,7 +69,7 @@ export async function POST(req: Request) {
   const note = { kind: 'leave_request', title: `Leave request: ${name}`, body: `${leaveLabel(input.leave_type)} · ${datesOf(input)} · ${v.days} day(s)` };
   await Promise.all([
     leadStep && leadUser ? notifyUsers([leadUser], { ...note, data: { screen: '/approvals', id: row.id } }) : Promise.resolve(),
-    notifyUsers(hr.filter(id => id !== leadUser && id !== g.user.id), { ...note, data: { id: row.id } }),
+    notifyUsers(hr.filter(id => id !== leadUser && id !== g.user.id), { ...note, data: { screen: '/leave', id: row.id } }),
   ]);
 
   let mail: { ok: boolean; to?: string[]; error?: string } | null = null;
@@ -108,7 +104,6 @@ export async function PATCH(req: Request) {
       return mail.ok ? NextResponse.json({ ok: true, to: mail.to }) : NextResponse.json({ error: mail.error }, { status: 502 });
     }
     await admin.from('leave_requests').update({ status: 'cancelled' }).eq('id', l.id);
-    await log(g.profile, 'CANCEL_LEAVE', l.id, {});
     await emailLeaveCancelled(l);
     if (l.tl_status === 'pending')
       await notifyUsers([await leadUserOf(l.employee_id)], {
@@ -138,7 +133,6 @@ export async function PATCH(req: Request) {
       .update({ leave_type: validCountAs, requested_type: l.requested_type ?? l.leave_type })
       .eq('id', l.id).eq('status', 'approved').select('*').maybeSingle();
     if (error || !updated) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
-    await log(g.profile, 'HR_RECOUNT_LEAVE', l.id, { employee_id: l.employee_id, counted_as: validCountAs });
     return NextResponse.json({ ok: true, leave: updated, step });
   }
 
@@ -161,7 +155,6 @@ export async function PATCH(req: Request) {
   }).eq('id', l.id).eq('status', l.status).select('*').maybeSingle(); // guards against the other side deciding at the same moment
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!updated) return NextResponse.json({ error: 'Someone else decided this request just now. Refresh to see the result.' }, { status: 409 });
-  await log(g.profile, `${step.toUpperCase()}_${decision === 'approved' ? 'APPROVE' : 'REJECT'}_LEAVE`, l.id, { employee_id: l.employee_id, status, ...(countAs ? { counted_as: countAs } : {}) });
   if (status !== l.status) {
     await emailLeaveDecision(updated as LeaveRequest); // the employee hears the outcome
     const u = updated as LeaveRequest;

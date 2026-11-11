@@ -74,9 +74,5 @@ export async function POST(req: Request) {
   }
 
   const sent = results.filter(r => r.ok).length;
-  await admin.from('audit_log').insert({
-    user_id: g.user.id, username: g.profile.username, table_name: 'email', op: 'SEND_EMAIL', row_id: type,
-    new_data: { type, sent, failed: results.length - sent, employees: items.map(i => i.employee_id) },
-  });
   return NextResponse.json({ results, sent });
 }

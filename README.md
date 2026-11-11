@@ -29,7 +29,7 @@ Payslips are kept for the **latest 2 months** only; older ones are deleted autom
 * By default a new user must choose their own password at first login (untick the box when creating to skip). Because the pattern is guessable, leaving this on is strongly recommended — this system holds salaries.
 * Access levels: **Admin** (everything, users, company settings) · **Editor** (import, attendance, payslips, leave approval) · **Viewer** (read only) — these use the HR app. **Team leader** and **Employee** logins use the employee panel at `/portal` and must be linked to an employee record.
 * HR can **Set password** for anyone who forgot theirs (User Access), or reset it to the default pattern. *Create employee logins for everyone without one* makes a login per employee (username = employee ID in lowercase).
-* Nothing is hard-deleted from the UI: employees are *archived*, and every change to employees / attendance / settings is recorded under **Activity Log** (who, when, old → new).
+* Nothing is hard-deleted from the UI: employees are *archived*.
 
 ## Employee & team leader panel (`/portal`)
 

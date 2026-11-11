@@ -20,9 +20,6 @@ export async function POST(req: Request) {
   const { error } = await admin.auth.admin.updateUserById(g.user.id, { password });
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   await admin.from('profiles').update({ must_change_password: false }).eq('id', g.user.id);
-  await admin.from('audit_log').insert({
-    user_id: g.user.id, username: g.profile.username, table_name: 'users', op: 'PASSWORD_CHANGED', row_id: g.user.id,
-  });
   await emailPasswordChanged(g.profile, appUrl(req)); // security notice; best effort
   return NextResponse.json({ ok: true });
 }

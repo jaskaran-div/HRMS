@@ -104,9 +104,5 @@ export async function POST(req: Request) {
     if (error || !data) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
     punch = data as Punch;
   }
-  await admin.from('audit_log').insert({
-    user_id: profile.id, username: profile.username, table_name: 'attendance_punches', op: b.action === 'in' ? 'CHECK_IN' : 'CHECK_OUT',
-    row_id: punch.id, new_data: { employee_id: me.id, day, distance_m: fix.distance_m, accuracy_m: fix.accuracy_m },
-  });
   return NextResponse.json({ ok: true, punch });
 }
