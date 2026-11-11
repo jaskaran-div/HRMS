@@ -33,6 +33,23 @@ export interface Settings {
   reply_to: string | null;
   short_leave_per_month: number;
   hr_email: string | null;
+  /** Office location for mobile check-in; null = not set up yet. */
+  office_lat: number | null;
+  office_lng: number | null;
+  office_radius_m: number;
+}
+
+/** One day's mobile check-in / check-out. */
+export interface Punch {
+  id: string;
+  employee_id: string;
+  day: string; // YYYY-MM-DD (IST)
+  in_at: string;
+  in_distance_m: number | null;
+  in_accuracy_m: number | null;
+  out_at: string | null;
+  out_distance_m: number | null;
+  out_accuracy_m: number | null;
 }
 
 export interface Employee {

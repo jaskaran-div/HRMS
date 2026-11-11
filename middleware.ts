@@ -1,8 +1,13 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+/** API routes the mobile app calls with `Authorization: Bearer <access token>`; each checks the token itself in guard(). */
+const MOBILE_API = /^\/api\/(mobile\/|leave$|change-password$)/;
+
 /** Keeps the Supabase session fresh and sends logged-out visitors to /login. */
 export async function middleware(req: NextRequest) {
+  if (MOBILE_API.test(req.nextUrl.pathname) && /^Bearer\s+\S+/i.test(req.headers.get('authorization') ?? ''))
+    return NextResponse.next({ request: req });
   let res = NextResponse.next({ request: req });
   const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     cookies: {

@@ -458,3 +458,55 @@ update public.leave_requests set requested_type = leave_type where requested_typ
 -- Where account emails (login details, password resets) go. Empty = the linked employee's email.
 ------------------------------------------------------------------------------
 alter table public.profiles add column if not exists email text;
+
+------------------------------------------------------------------------------
+-- Mobile app: GPS check-in, push notifications
+------------------------------------------------------------------------------
+-- Office location. Employees can check in from the mobile app only within office_radius_m metres of it.
+alter table public.settings add column if not exists office_lat double precision check (office_lat between -90 and 90);
+alter table public.settings add column if not exists office_lng double precision check (office_lng between -180 and 180);
+alter table public.settings add column if not exists office_radius_m int not null default 100 check (office_radius_m between 20 and 5000);
+
+-- One row per employee per day: when (and how far from the office) they checked in / out on the mobile app.
+-- Written only by the server (/api/mobile/punch), which checks the distance. HR staff read it.
+create table if not exists public.attendance_punches (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid not null references public.employees (id) on delete cascade,
+  day date not null,                               -- the date in India (IST)
+  in_at timestamptz not null default now(),
+  in_lat double precision, in_lng double precision,
+  in_accuracy_m numeric(8,1), in_distance_m numeric(8,1),
+  out_at timestamptz,
+  out_lat double precision, out_lng double precision,
+  out_accuracy_m numeric(8,1), out_distance_m numeric(8,1),
+  created_by uuid references public.profiles (id) on delete set null,
+  unique (employee_id, day)
+);
+create index if not exists attendance_punches_day_idx on public.attendance_punches (day desc);
+alter table public.attendance_punches enable row level security;
+drop policy if exists punches_read on public.attendance_punches;
+create policy punches_read on public.attendance_punches for select to authenticated using (public.can_read());
+
+-- Expo push tokens: one per phone a login is signed in on. Server only.
+create table if not exists public.push_tokens (
+  token text primary key,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  platform text,
+  updated_at timestamptz not null default now()
+);
+create index if not exists push_tokens_user_idx on public.push_tokens (user_id);
+alter table public.push_tokens enable row level security;
+
+-- In-app notification inbox (also sent as a push). Server only: the app reads it through /api/mobile/notifications.
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  kind text not null,                              -- leave_request | leave_decision | leave_cancelled | payslip | ...
+  title text not null,
+  body text not null,
+  data jsonb not null default '{}'::jsonb,         -- e.g. {"screen":"/approvals"}
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists notifications_user_idx on public.notifications (user_id, created_at desc);
+alter table public.notifications enable row level security;

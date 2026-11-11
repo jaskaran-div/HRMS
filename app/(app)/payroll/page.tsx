@@ -86,6 +86,9 @@ export default function PayrollPage() {
       if (error) { notify(error.message, 'err'); setBusy(false); return; }
     }
     const { data: removed } = await sb.rpc('purge_old_payslips', { keep_months: KEEP_MONTHS });
+    // mobile app: tell each employee their payslip is ready (best effort)
+    fetch('/api/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'payslips', month, employee_ids: payload.map(p => p.employee_id) }) }).catch(() => {});
     setBusy(false);
     notify(`Generated ${payload.length} payslips for ${monthLabel(month)}` + (removed ? ` · removed ${removed} older payslips` : ''));
     reload();

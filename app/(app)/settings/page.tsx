@@ -14,7 +14,26 @@ export default function SettingsPage() {
     paid_leave_per_month: String(settings.paid_leave_per_month), basic_pct: String(settings.basic_pct),
     hra_pct: String(settings.hra_pct), conveyance_pct: String(settings.conveyance_pct),
     short_leave_per_month: String(settings.short_leave_per_month ?? 1), hr_email: settings.hr_email ?? '',
+    office_lat: settings.office_lat != null ? String(settings.office_lat) : '',
+    office_lng: settings.office_lng != null ? String(settings.office_lng) : '',
+    office_radius_m: String(settings.office_radius_m ?? 100),
   });
+  const [locating, setLocating] = useState(false);
+
+  /** Fills the office location from this computer / phone's GPS (stand in the office when doing this). */
+  function readHere() {
+    if (!navigator.geolocation) { notify('This browser cannot read your location.', 'err'); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      p => {
+        setLocating(false);
+        setF(x => ({ ...x, office_lat: p.coords.latitude.toFixed(6), office_lng: p.coords.longitude.toFixed(6) }));
+        notify(`Location read (±${Math.round(p.coords.accuracy)} m). Check it on the map, then Save.`);
+      },
+      e => { setLocating(false); notify(e.message || 'Could not read your location.', 'err'); },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  }
   const [logo, setLogo] = useState<string | null>(settings.logo);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -55,8 +74,15 @@ export default function SettingsPage() {
     if (special < 0) { notify('Basic + HRA + Conveyance cannot be more than 100%.', 'err'); return; }
     if (!f.company_name.trim()) { notify('Company name is required.', 'err'); return; }
     if (f.hr_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.hr_email.trim())) { notify('Enter a valid HR email address.', 'err'); return; }
+    const hasLat = f.office_lat.trim() !== '', hasLng = f.office_lng.trim() !== '';
+    const lat = Number(f.office_lat), lng = Number(f.office_lng), radius = Math.round(num(f.office_radius_m));
+    if (hasLat !== hasLng || (hasLat && (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180))) {
+      notify('Enter both office latitude and longitude (e.g. 28.459497, 77.026638), or leave both blank.', 'err'); return;
+    }
+    if (radius < 20 || radius > 5000) { notify('Check-in radius must be between 20 and 5000 metres.', 'err'); return; }
     setBusy(true);
     const { error } = await supabaseBrowser().from('settings').update({
+      office_lat: hasLat ? lat : null, office_lng: hasLng ? lng : null, office_radius_m: radius,
       company_name: f.company_name.trim(), company_address: f.company_address.trim(), footer_note: f.footer_note.trim(), logo,
       paid_leave_per_month: num(f.paid_leave_per_month),
       short_leave_per_month: Math.round(num(f.short_leave_per_month)), hr_email: f.hr_email.trim() || null, basic_pct: num(f.basic_pct), hra_pct: num(f.hra_pct), conveyance_pct: num(f.conveyance_pct),
@@ -110,6 +136,28 @@ export default function SettingsPage() {
         </div>
         <p className="muted small">Changing these affects payslips generated from now on. Already generated payslips stay as they were until you regenerate them.</p>
         <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+
+      <div className="card">
+        <h3>Mobile app check-in (office location)</h3>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Employees can check in from the mobile app only when their phone&apos;s GPS puts them within this distance of the office.
+          Checking in marks the day <b>Present</b> in attendance (days HR already marked are not changed).
+        </p>
+        <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
+          <label>Latitude<input inputMode="decimal" value={f.office_lat} onChange={set('office_lat')} placeholder="28.459497" /></label>
+          <label>Longitude<input inputMode="decimal" value={f.office_lng} onChange={set('office_lng')} placeholder="77.026638" /></label>
+          <label>Check-in radius (metres)<input type="number" min={20} max={5000} step={10} value={f.office_radius_m} onChange={set('office_radius_m')} />
+            <span className="hint">100 m is a good default. Phone GPS is usually accurate to 5–30 m outdoors.</span></label>
+        </div>
+        <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
+          <button type="button" className="btn" disabled={locating} onClick={readHere}>{locating ? 'Reading location…' : 'Use my current location'}</button>
+          {f.office_lat && f.office_lng && (
+            <a className="btn" target="_blank" rel="noreferrer" href={`https://www.google.com/maps?q=${encodeURIComponent(f.office_lat)},${encodeURIComponent(f.office_lng)}`}>Check on map</a>
+          )}
+          <span className="muted small">Tip: in Google Maps, right-click the office and click the numbers to copy them.</span>
+        </div>
+        <button className="btn primary" style={{ marginTop: 14 }} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
     </form>
   );

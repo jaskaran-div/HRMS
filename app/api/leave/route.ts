@@ -5,10 +5,20 @@ import { teamIds } from '@/lib/portal';
 import { canDecideStep, decidedBy, validateLeave, type LeaveInput } from '@/lib/leave';
 import { emailLeaveCancelled, emailLeaveDecision, emailLeaveRequest, emailLeaveStep } from '@/lib/leave-mail';
 import { appUrl } from '@/lib/notify-mail';
-import { todayISO } from '@/lib/dates';
+import { fmtDate, todayISO } from '@/lib/dates';
+import { leaveLabel } from '@/lib/leave';
+import { hrUsers, leadUserOf, notifyUsers, usersOfEmployees } from '@/lib/push';
 import type { LeaveRequest, Profile, Settings } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
+
+const datesOf = (l: Pick<LeaveRequest, 'start_date' | 'end_date'>) =>
+  l.start_date === l.end_date ? fmtDate(l.start_date) : `${fmtDate(l.start_date)} – ${fmtDate(l.end_date)}`;
+
+async function employeeName(id: string): Promise<string> {
+  const { data } = await supabaseAdmin().from('employees').select('name').eq('id', id).maybeSingle();
+  return (data?.name as string | undefined) ?? 'An employee';
+}
 
 const log = (by: Profile, op: string, rowId: string, data: object) =>
   supabaseAdmin().from('audit_log').insert({ user_id: by.id, username: by.username, table_name: 'leave_requests', op, row_id: rowId, new_data: data });
@@ -57,6 +67,15 @@ export async function POST(req: Request) {
   if (error || !row) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
   await log(g.profile, 'APPLY_LEAVE', row.id, { type: input.leave_type, from: input.start_date, to: input.end_date, days: v.days, over_quota: v.overQuota });
 
+  // push: the team leader (who can decide in the app) and HR
+  const name = await employeeName(empId);
+  const [leadUser, hr] = await Promise.all([leadUserOf(empId), hrUsers()]);
+  const note = { kind: 'leave_request', title: `Leave request: ${name}`, body: `${leaveLabel(input.leave_type)} · ${datesOf(input)} · ${v.days} day(s)` };
+  await Promise.all([
+    leadStep && leadUser ? notifyUsers([leadUser], { ...note, data: { screen: '/approvals', id: row.id } }) : Promise.resolve(),
+    notifyUsers(hr.filter(id => id !== leadUser && id !== g.user.id), { ...note, data: { id: row.id } }),
+  ]);
+
   let mail: { ok: boolean; to?: string[]; error?: string } | null = null;
   if (b.email !== false) mail = await emailLeaveRequest(row as LeaveRequest, appUrl(req));
   return NextResponse.json({ leave: row, mail });
@@ -91,6 +110,11 @@ export async function PATCH(req: Request) {
     await admin.from('leave_requests').update({ status: 'cancelled' }).eq('id', l.id);
     await log(g.profile, 'CANCEL_LEAVE', l.id, {});
     await emailLeaveCancelled(l);
+    if (l.tl_status === 'pending')
+      await notifyUsers([await leadUserOf(l.employee_id)], {
+        kind: 'leave_cancelled', title: `Leave cancelled: ${await employeeName(l.employee_id)}`,
+        body: `${leaveLabel(l.leave_type)} · ${datesOf(l)} — no action needed.`, data: { screen: '/approvals', id: l.id },
+      });
     return NextResponse.json({ ok: true });
   }
 
@@ -140,6 +164,12 @@ export async function PATCH(req: Request) {
   await log(g.profile, `${step.toUpperCase()}_${decision === 'approved' ? 'APPROVE' : 'REJECT'}_LEAVE`, l.id, { employee_id: l.employee_id, status, ...(countAs ? { counted_as: countAs } : {}) });
   if (status !== l.status) {
     await emailLeaveDecision(updated as LeaveRequest); // the employee hears the outcome
+    const u = updated as LeaveRequest;
+    await notifyUsers(await usersOfEmployees([l.employee_id]), {
+      kind: 'leave_decision', title: `Leave ${status === 'approved' ? 'approved' : 'declined'}`,
+      body: `${leaveLabel(u.leave_type)} · ${datesOf(u)} — by ${step === 'tl' ? 'your team leader' : 'HR'} (${g.profile.full_name})${note ? `: ${note}` : ''}`,
+      data: { screen: '/leave', id: l.id },
+    });
     if (l.status === 'pending') await emailLeaveStep(updated as LeaveRequest, step, appUrl(req)); // the other side: no action needed
   }
   return NextResponse.json({ ok: true, leave: updated, step });
