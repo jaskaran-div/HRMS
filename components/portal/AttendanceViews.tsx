@@ -9,7 +9,7 @@ export function AttendanceLegend() {
   return (
     <div className="cal-legend">
       {ORDER.map(c => <span key={c}><i className={`cell ${CODE_CLS[c]}`}>{c}</i>{CODE_LABEL[c]}</span>)}
-      <span><i className="cell lv">L</i>Approved leave, not marked yet</span>
+      <span><i className="cell l">L</i>Leave approved ✓</span>
     </div>
   );
 }
@@ -43,10 +43,10 @@ export function AttendanceCalendar({ month, daily, doj, leaves = [], today }: {
           const iso = `${month.slice(0, 8)}${String(d).padStart(2, '0')}`;
           const cls = v.kind === 'off' ? 'off' : v.code ? CODE_CLS[v.code as DayCode] : '';
           return (
-            <div key={d} className={`cal-d ${cls} ${v.kind === 'leave' ? 'lv' : ''} ${iso === today ? 'today' : ''} ${i % 7 === 6 ? 'sun' : ''}`} title={v.label}>
+            <div key={d} className={`cal-d ${cls} ${iso === today ? 'today' : ''} ${i % 7 === 6 ? 'sun' : ''}`} title={v.label}>
               <span className="n">{d}</span>
               {v.code && v.kind !== 'off' && <span className="c">{v.code}</span>}
-              <small>{v.kind === 'off' ? 'Not joined' : v.kind === 'empty' ? '' : v.kind === 'leave' ? 'Approved' : CODE_LABEL[v.code as DayCode]}</small>
+              <small>{v.kind === 'off' ? 'Not joined' : v.kind === 'empty' ? '' : v.kind === 'leave' ? `${CODE_LABEL[v.code as DayCode]} ✓` : CODE_LABEL[v.code as DayCode]}</small>
             </div>
           );
         })}
@@ -88,7 +88,7 @@ export function TeamAttendanceGrid({ month, people }: { month: string; people: G
                 </td>
                 {days.map((v, i) => (
                   <td key={i} className={dow(i + 1) === 0 ? 'sun' : ''}>
-                    <span className={`cell ro ${v.kind === 'off' ? 'off' : v.code ? CODE_CLS[v.code as DayCode] : ''} ${v.kind === 'leave' ? 'lv' : ''}`} title={`${i + 1} ${monthLabel(month, false)} · ${v.label}`}>
+                    <span className={`cell ro ${v.kind === 'off' ? 'off' : v.code ? CODE_CLS[v.code as DayCode] : ''}`} title={`${i + 1} ${monthLabel(month, false)} · ${v.label}`}>
                       {v.kind === 'off' ? '' : v.code}
                     </span>
                   </td>

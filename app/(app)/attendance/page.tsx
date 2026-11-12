@@ -28,7 +28,7 @@ const matchEmployee = (r: ParsedAttendanceRow, emps: Employee[]): string => {
 export default function AttendancePage() {
   const { canEdit, settings, notify } = useApp();
   const rules = rulesFrom(settings);
-  const [ym, setYm] = useState(() => shiftMonth(`${currentYM()}-01`, -1).slice(0, 7));
+  const [ym, setYm] = useState(() => currentYM()); // opens on the current month
   const month = monthStart(ym);
   const [y, m] = ym.split('-').map(Number);
   const dim = daysInMonth(y, m);

@@ -108,6 +108,9 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved, lea
   const effective = (e: Employee, marked: Days): Days => {
     const out = { ...marked };
     for (const d of days) if (out[d] === undefined && auto(e, d)) out[d] = 'W';
+    // approved leave counts on days HR has not marked (shown, counted and saved with the row)
+    const lv = leaveDays.get(e.id);
+    if (lv) for (const [d, x] of lv) if (out[d] === undefined && d >= firstDay(e)) out[d] = x.code;
     return out;
   };
 
@@ -250,11 +253,11 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved, lea
                     const off = d < fd;
                     const b = BRUSHES.find(x => x.code === v);
                     const lv = off ? undefined : leaveDays.get(e.id)?.get(d);
-                    const hint = lv && lv.code !== v ? ` · approved ${lv.label}` : '';
+                    const hint = lv ? (lv.code === v ? ' · leave approved ✓' : ` · approved ${lv.label}`) : '';
                     return (
                       <td key={d} className={dow(d) === 0 ? 'sun' : ''}>
                         <button
-                          className={`cell ${off ? 'off' : b?.cls ?? ''} ${hint ? 'lv' : ''}`} disabled={readOnly || off}
+                          className={`cell ${off ? 'off' : b?.cls ?? ''} ${lv && lv.code !== v ? 'lv' : ''}`} disabled={readOnly || off}
                           onMouseDown={() => { painting.current = true; paint(e, d); }}
                           onMouseEnter={() => painting.current && paint(e, d)}
                           title={off ? 'Not joined yet' : (b?.label ?? 'Not marked') + hint}

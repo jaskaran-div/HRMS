@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import { rowsFromWorkbook, type SheetRow } from '../lib/sheet';
 import { availableTypes, canDecideStep, decidedBy, overallStatus, quotaFor, stageText, validateLeave, workingDays } from '../lib/leave';
 import { employedIn } from '../lib/exit';
+import { countDays, monthDays } from '../lib/att-view';
 
 let passed = 0;
 const test = (name: string, fn: () => void) => {
@@ -383,6 +384,17 @@ test('official mail id from the employee sheet wins over the personal email', ()
   assert.equal(officialEmailOf(e), 'gulam.w@derivion.in');
   assert.equal(officialEmailOf({ email: 'a@derivion.in', extra: {} }), 'a@derivion.in');
   assert.equal(officialEmailOf({ email: null, extra: { 'Official Mail Id': '' } }), null);
+});
+
+test('approved leave shows as confirmed on the calendar and counts; HR marks still win', () => {
+  // Nov 2026: 23rd is a Monday. Paid leave 23-24, HR already marked the 24th present.
+  const days = monthDays('2026-11-01', { '24': 'P' }, null, [{ leave_type: 'paid', start_date: '2026-11-23', end_date: '2026-11-24' }]);
+  assert.equal(days[22].code, 'L'); assert.equal(days[22].kind, 'leave'); assert.match(days[22].label, /approved/);
+  assert.equal(days[23].code, 'P'); assert.equal(days[23].kind, 'marked');
+  const c = countDays(days);
+  assert.equal(c.L, 1); assert.equal(c.P, 1);
+  // short leave on a week off (Sunday 22nd) is not shown
+  assert.equal(monthDays('2026-11-01', null, null, [{ leave_type: 'short', start_date: '2026-11-22', end_date: '2026-11-22' }])[21].code, '');
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

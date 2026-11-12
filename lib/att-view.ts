@@ -5,7 +5,7 @@ import type { LeaveRequest } from './types';
 export type DayCode = 'P' | 'A' | 'W' | 'H' | 'L' | 'S' | 'O';
 export interface DayView {
   code: DayCode | '';
-  /** marked = HR marked it; auto = 2nd / 4th Saturday week off; leave = approved leave not marked yet; off = before joining */
+  /** marked = HR marked it; auto = 2nd / 4th Saturday week off; leave = approved leave (confirmed, counted); off = before joining */
   kind: 'marked' | 'auto' | 'leave' | 'off' | 'empty';
   label: string;
 }
@@ -37,7 +37,7 @@ export function monthDays(month: string, daily: Record<string, string> | null | 
     const iso = `${ym}-${String(d).padStart(2, '0')}`;
     const wd = new Date(y, m - 1, d).getDay();
     const lv = wd !== 0 && !isOffSaturday(y, m, d) ? leaves.find(l => iso >= l.start_date && iso <= l.end_date) : undefined;
-    if (lv) { const c = LEAVE_CODE[lv.leave_type]; out.push({ code: c, kind: 'leave', label: `Approved ${CODE_LABEL[c].toLowerCase()} (not marked by HR yet)` }); continue; }
+    if (lv) { const c = LEAVE_CODE[lv.leave_type]; out.push({ code: c, kind: 'leave', label: `${CODE_LABEL[c]} · approved` }); continue; }
     if (isOffSaturday(y, m, d)) { out.push({ code: 'W', kind: 'auto', label: 'Week off (2nd / 4th Saturday)' }); continue; }
     out.push({ code: '', kind: 'empty', label: 'Not marked' });
   }
@@ -46,7 +46,7 @@ export function monthDays(month: string, daily: Record<string, string> | null | 
 
 export function countDays(days: DayView[]) {
   const c: Record<DayCode, number> = { P: 0, A: 0, W: 0, H: 0, L: 0, S: 0, O: 0 };
-  for (const d of days) if (d.code && d.kind !== 'leave') c[d.code]++;
+  for (const d of days) if (d.code) c[d.code]++; // approved leave counts as confirmed
   return c;
 }
 

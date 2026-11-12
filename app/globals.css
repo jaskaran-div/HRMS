@@ -110,6 +110,7 @@ main{padding:24px 28px 40px;width:100%;max-width:1320px}
 .spinner{display:inline-block;border-radius:50%;border:2.5px solid #d6e3fb;border-top-color:var(--brand);animation:spin .7s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading{display:flex;align-items:center;justify-content:center;gap:12px;color:var(--mute);padding:40px 16px}
+.boot{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--mute);font-size:14px;background:var(--canvas,#f5f7fb)}
 .sk{height:12px;border-radius:8px;background:linear-gradient(90deg,#eef1f5 25%,#f6f8fa 50%,#eef1f5 75%);background-size:200% 100%;animation:shimmer 1.3s infinite}
 @keyframes shimmer{to{background-position:-200% 0}}
 .sk-card{display:block}
