@@ -23,7 +23,8 @@ export async function middleware(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   const path = req.nextUrl.pathname;
 
-  if (!user && path !== '/login') {
+  // /api/logout must work even with an expired session, so it always lands on /login
+  if (!user && path !== '/login' && path !== '/api/logout') {
     if (path.startsWith('/api/')) return NextResponse.json({ error: 'Not logged in' }, { status: 401 });
     const url = req.nextUrl.clone();
     url.pathname = '/login';
