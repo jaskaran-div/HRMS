@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { toEmail } from '@/lib/username';
 import { Icon } from '@/components/Icon';
@@ -13,7 +12,7 @@ export function Logo({ company, logo, className = 'logo' }: { company: string; l
 }
 
 export function LoginForm({ company, logo }: { company: string; logo: string | null }) {
-  const router = useRouter();
+  const [entering, setEntering] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -30,13 +29,22 @@ export function LoginForm({ company, logo }: { company: string; logo: string | n
         setBusy(false);
         return;
       }
-      router.replace('/');
-      router.refresh();
+      // Full page load (not an in-app switch): the loader stays on screen until the panel is ready,
+      // instead of a blank page while the server checks the login and redirects to the right panel.
+      setEntering(true);
+      window.location.replace('/');
     } catch {
       setError('Could not reach the server. Check your internet connection.');
       setBusy(false);
     }
   }
+
+  if (entering) return (
+    <div className="boot" role="status" aria-label="Loading">
+      <Spinner size={34} />
+      <span>Logging in to {company}…</span>
+    </div>
+  );
 
   return (
     <div className="login-wrap">

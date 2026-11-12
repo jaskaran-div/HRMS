@@ -1,12 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { Spinner } from '@/components/ui';
 
 export default function ChangePasswordPage() {
-  const router = useRouter();
   const [pw, setPw] = useState('');
   const [again, setAgain] = useState('');
   const [show, setShow] = useState(false);
@@ -25,7 +23,7 @@ export default function ChangePasswordPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) { setError(body.error ?? 'Could not change the password.'); setBusy(false); return; }
       setDone(true);
-      setTimeout(() => { router.replace('/'); router.refresh(); }, 900);
+      setTimeout(() => window.location.replace('/'), 900); // full load: the loader shows instead of a blank page
     } catch {
       setError('Could not reach the server. Check your internet connection.');
       setBusy(false);
