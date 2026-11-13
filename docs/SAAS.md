@@ -37,7 +37,7 @@ deactivation, ownership transfer and billing event is written to the organizatio
    With "Confirm email" ON, unverified owners cannot even sign in; with it OFF they can sign in but are held on
    `/verify-email`. Either is safe.
 4. **Platform admin:** `node --env-file=.env.local scripts/make-platform-admin.mjs you@example.com` → `/admin`.
-5. **Login branding (optional):** `LOGIN_BRAND_ORG=derivion` keeps the Derivion name / logo on the login page.
+5. **Login branding:** the login page shows Derivion's name and logo by default; `LOGIN_BRAND_ORG=<slug>` picks another organization, `LOGIN_BRAND_ORG=none` shows `PLATFORM_NAME`.
 
 ## Stripe
 
