@@ -19,7 +19,7 @@ import type { Attendance, Employee, LeaveRequest } from '@/lib/types';
 type Leave = LeaveRequest & { employees: { name: string; emp_code: string } | null };
 
 export default function Dashboard() {
-  const { settings, profile, canEdit } = useApp();
+  const { settings, profile, canEdit, has } = useApp();
   const rules = rulesFrom(settings);
   const today = todayISO();
 
@@ -85,7 +85,7 @@ export default function Dashboard() {
         <span className="sp" />
         <button className="icon-btn" onClick={reload} aria-label="Refresh" title="Refresh"><Icon name="refresh" size={16} /></button>
         {canEdit && <Link href="/attendance" className="btn"><Icon name="calendar" size={16} /> Attendance</Link>}
-        {canEdit && <Link href="/payroll" className="btn primary"><Icon name="wallet" size={16} /> Run payroll</Link>}
+        {canEdit && has('payroll') && <Link href="/payroll" className="btn primary"><Icon name="wallet" size={16} /> Run payroll</Link>}
       </div>
 
       <div className="split">

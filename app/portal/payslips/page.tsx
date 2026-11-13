@@ -1,12 +1,15 @@
 import { portalSession } from '@/lib/portal';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { PayslipTable } from '@/components/portal/PayslipTable';
+import { AddonLocked } from '@/components/AddonLocked';
+import { orgFeatures } from '@/lib/org';
 import type { PayslipData } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MyPayslips() {
   const s = await portalSession();
+  if (!orgFeatures(s.org).includes('payroll')) return <AddonLocked feature="payroll" />;
   const { data } = await supabaseAdmin().from('payslips').select('data').eq('employee_id', s.me!.id).order('month', { ascending: false });
   return (
     <div className="card">

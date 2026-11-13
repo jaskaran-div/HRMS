@@ -4,9 +4,11 @@ import { guard } from './auth';
 import { supabaseAdmin } from './supabase/admin';
 import { officialEmailOf, phoneOf } from './official-email';
 import { SELF_COLUMNS, TEAM_COLUMNS, teamIds, type SelfRecord, type TeamMember } from './portal';
+import type { Org } from './org';
 import type { Profile, Settings } from './types';
 
 export interface MobileSession {
+  org: Org;
   profile: Profile;
   settings: Settings;
   me: SelfRecord;
@@ -30,7 +32,7 @@ export async function mobileSession(): Promise<Result> {
     return { ok: false, response: NextResponse.json({ error: 'Your login is not linked to an employee record. Ask HR to link it under User Access.', code: 'not_linked' }, { status: 403 }) };
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: me }] = await Promise.all([
-    admin.from('settings').select('*').eq('id', 1).single(),
+    admin.from('settings').select('*').eq('org_id', g.org.id).single(),
     admin.from('employees').select(`${SELF_COLUMNS}, extra`).eq('id', p.employee_id).maybeSingle(),
   ]);
   if (!settings) return { ok: false, response: NextResponse.json({ error: 'Settings row missing.' }, { status: 500 }) };
@@ -42,7 +44,7 @@ export async function mobileSession(): Promise<Result> {
   return {
     ok: true,
     s: {
-      profile: p, settings: settings as Settings, me: self,
+      org: g.org, profile: p, settings: settings as Settings, me: self,
       lead: lead ? (strip(lead as TeamMember & { extra: Record<string, string> }) as TeamMember) : null,
       isLead: p.role === 'team_lead',
     },

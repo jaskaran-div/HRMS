@@ -1,5 +1,6 @@
 // SERVER ONLY. In-app notifications (the mobile app's inbox) + push to the phones the person is signed in on.
 import { supabaseAdmin } from './supabase/admin';
+import { EDIT_ROLES } from './roles';
 
 export interface Note {
   kind: string;
@@ -49,9 +50,9 @@ export async function usersOfEmployees(employeeIds: (string | null | undefined)[
   return (data ?? []).map(p => p.id as string);
 }
 
-/** HR staff who can decide leave (admins and editors). */
-export async function hrUsers(): Promise<string[]> {
-  const { data } = await supabaseAdmin().from('profiles').select('id').in('role', ['admin', 'editor']).eq('active', true);
+/** HR staff of this organization who can decide leave. */
+export async function hrUsers(orgId: string): Promise<string[]> {
+  const { data } = await supabaseAdmin().from('profiles').select('id').eq('org_id', orgId).in('role', EDIT_ROLES).eq('active', true);
   return (data ?? []).map(p => p.id as string);
 }
 

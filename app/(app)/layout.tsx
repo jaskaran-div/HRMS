@@ -4,25 +4,28 @@ import { AppProvider } from '@/components/AppContext';
 import { Shell } from '@/components/Shell';
 import { mailConfigured } from '@/lib/mailer';
 import { driveConfigured } from '@/lib/drive';
-import { isStaff, type Profile, type Settings } from '@/lib/types';
+import { requireAccess, webSession } from '@/lib/web-session';
+import { summarize } from '@/lib/org';
+import { isStaff, type Settings } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await supabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  if (!profile || !profile.active) redirect('/api/logout');
+  const s = await webSession();
+  await requireAccess(s);
+  const { profile, org } = s;
   if (profile.must_change_password) redirect('/change-password');
-  if (!isStaff((profile as Profile).role)) redirect('/portal');
+  // a new organization's owner sets it up once, right after the first payment
+  if (!org.onboarded_at && profile.role === 'owner') redirect('/onboarding');
+  if (!isStaff(profile.role)) redirect('/portal');
 
-  const { data: settings } = await supabase.from('settings').select('*').eq('id', 1).single();
-  if (!settings) throw new Error('Settings row missing. Did you run supabase/schema.sql?');
+  // read as the user: Row Level Security returns only this organization's row
+  const supabase = await supabaseServer();
+  const { data: settings } = await supabase.from('settings').select('*').eq('org_id', org.id).single();
+  if (!settings) throw new Error('Settings row missing. Did you run supabase/saas.sql?');
 
   return (
-    <AppProvider profile={profile as Profile} settings={settings as Settings} mailReady={mailConfigured()} driveReady={driveConfigured()}>
+    <AppProvider profile={profile} settings={settings as Settings} org={summarize(org)} mailReady={mailConfigured()} driveReady={driveConfigured()}>
       <Shell>{children}</Shell>
     </AppProvider>
   );

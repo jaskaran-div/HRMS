@@ -5,7 +5,7 @@ import { defaultPassword } from '@/lib/username';
 import { appUrl, emailPasswordChanged } from '@/lib/notify-mail';
 
 export async function POST(req: Request) {
-  const g = await guard();
+  const g = await guard(undefined, { allowLocked: true });
   if (!g.ok) return g.response;
 
   const { password } = (await req.json().catch(() => ({}))) as { password?: string };

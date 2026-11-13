@@ -12,8 +12,11 @@ export async function POST(req: Request) {
   if (!g.ok) return g.response;
   const b = (await req.json().catch(() => ({}))) as { token?: string; platform?: string };
   if (!b.token || !TOKEN.test(b.token)) return NextResponse.json({ error: 'Invalid push token.' }, { status: 400 });
-  // a phone belongs to whoever logged in last on it
-  const { error } = await supabaseAdmin().from('push_tokens').upsert(
+  // a phone belongs to whoever logged in last on it. Delete + insert (not upsert): the previous login may be in
+  // another organization, and rows never move between organizations.
+  const admin = supabaseAdmin();
+  await admin.from('push_tokens').delete().eq('token', b.token).neq('user_id', g.user.id);
+  const { error } = await admin.from('push_tokens').upsert(
     { token: b.token, user_id: g.user.id, platform: String(b.platform ?? '').slice(0, 20) || null, updated_at: new Date().toISOString() },
     { onConflict: 'token' });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

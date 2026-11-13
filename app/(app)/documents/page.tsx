@@ -15,7 +15,13 @@ type Emp = Pick<Employee, 'id' | 'emp_code' | 'name' | 'archived_at'>;
 const CATEGORIES = ['Terms & conditions', 'Policy', 'Offer letter', 'Appointment letter', 'ID proof', 'Address proof', 'Education', 'Experience letter', 'Warning letter', 'Other'];
 const MAX = 4 * 1024 * 1024;
 
-export default function DocumentsPage() {
+import { FeatureGate } from '@/components/AddonLocked';
+
+export default function DocumentsPageGate() {
+  return <FeatureGate feature="documents"><DocumentsPage /></FeatureGate>;
+}
+
+function DocumentsPage() {
   const { canEdit, driveReady, notify, mailReady } = useApp();
   const [owner, setOwner] = useState(''); // '' = company documents, else employee id
   const [title, setTitle] = useState('');

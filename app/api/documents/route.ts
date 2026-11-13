@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { DRIVE_NOT_SET, driveConfigured, driveTrash, driveUpload } from '@/lib/drive';
+import { EDIT_ROLES } from '@/lib/roles';
+import { driveFolderFor } from '@/lib/tenant';
 import { appUrl, emailCompanyDocument, emailDocumentShared, type MailResult } from '@/lib/notify-mail';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +14,7 @@ const MAX_BYTES = 4 * 1024 * 1024;
 
 /** HR uploads a document. Form fields: file, title, category, employee_id (blank = company document), visible ('1' / '0'). */
 export async function POST(req: Request) {
-  const g = await guard(['admin', 'editor']);
+  const g = await guard(EDIT_ROLES, { feature: 'documents' });
   if (!g.ok) return g.response;
   if (!driveConfigured()) return NextResponse.json({ error: DRIVE_NOT_SET }, { status: 503 });
 
@@ -29,19 +31,19 @@ export async function POST(req: Request) {
   const admin = supabaseAdmin();
   let sub = 'Company documents';
   if (employeeId) {
-    const { data: emp } = await admin.from('employees').select('emp_code, name').eq('id', employeeId).maybeSingle();
+    const { data: emp } = await admin.from('employees').select('emp_code, name').eq('id', employeeId).eq('org_id', g.org.id).maybeSingle();
     if (!emp) return NextResponse.json({ error: 'Employee not found.' }, { status: 404 });
     sub = `${emp.emp_code} - ${emp.name}`;
   }
   const safeName = file.name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 180);
   let driveId: string;
   try {
-    driveId = await driveUpload(sub, safeName, file.type || 'application/octet-stream', Buffer.from(await file.arrayBuffer()));
+    driveId = await driveUpload(driveFolderFor(g.org, sub), safeName, file.type || 'application/octet-stream', Buffer.from(await file.arrayBuffer()));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }
   const { data: row, error } = await admin.from('documents').insert({
-    employee_id: employeeId, title, category, file_name: safeName, mime_type: file.type || null, size_bytes: file.size,
+    org_id: g.org.id, employee_id: employeeId, title, category, file_name: safeName, mime_type: file.type || null, size_bytes: file.size,
     drive_file_id: driveId, visible_to_employee: visible, uploaded_by: g.user.id, uploaded_by_name: g.profile.full_name,
   }).select('*').single();
   if (error) {
@@ -51,6 +53,6 @@ export async function POST(req: Request) {
   let mail: MailResult | null = null;
   if (visible && notifyOn) mail = employeeId
     ? await emailDocumentShared(employeeId, title, category, appUrl(req))
-    : await emailCompanyDocument(title, category, appUrl(req));
+    : await emailCompanyDocument(g.org.id, title, category, appUrl(req));
   return NextResponse.json({ document: row, mail });
 }

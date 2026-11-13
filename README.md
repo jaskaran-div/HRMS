@@ -1,5 +1,7 @@
 # HR Portal
 
+> **Multi-organization SaaS:** organizations, roles, registration, Stripe billing and the platform admin panel are described in [docs/SAAS.md](docs/SAAS.md). Run `supabase/saas.sql` after `supabase/schema.sql`.
+
 Employees, monthly attendance and auto-generated payslips. Next.js on Vercel, Supabase (Postgres + Auth) for data and logins.
 
 ## How it works each month

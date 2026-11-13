@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { officialEmailOf } from '@/lib/official-email';
 import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from '@/lib/mailer';
 import { baseVars, fillTemplate, htmlToText, wrapEmail } from '@/lib/email-templates';
+import { EDIT_ROLES } from '@/lib/roles';
 import type { Settings } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +15,7 @@ const MAX_BYTES = 8 * 1024 * 1024;
 
 /** HR writes (or edits a template into) a one-off email to a single employee, with optional attachments. */
 export async function POST(req: Request) {
-  const g = await guard(['admin', 'editor']);
+  const g = await guard(EDIT_ROLES, { feature: 'email_center' });
   if (!g.ok) return g.response;
   if (!mailConfigured())
     return NextResponse.json({ error: 'Email is not set up yet: add SMTP_HOST, SMTP_USER and SMTP_PASS to the server environment.' }, { status: 503 });
@@ -31,8 +32,8 @@ export async function POST(req: Request) {
 
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: emp }] = await Promise.all([
-    admin.from('settings').select('*').eq('id', 1).single(),
-    admin.from('employees').select('id, name, emp_code, email, extra').eq('id', b.employee_id).maybeSingle(),
+    admin.from('settings').select('*').eq('org_id', g.org.id).single(),
+    admin.from('employees').select('id, name, emp_code, email, extra').eq('id', b.employee_id).eq('org_id', g.org.id).maybeSingle(),
   ]);
   if (!settings) return NextResponse.json({ error: 'Company settings are missing.' }, { status: 500 });
   if (!emp) return NextResponse.json({ error: 'Employee not found.' }, { status: 404 });

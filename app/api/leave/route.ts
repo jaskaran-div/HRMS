@@ -8,6 +8,7 @@ import { appUrl } from '@/lib/notify-mail';
 import { fmtDate, todayISO } from '@/lib/dates';
 import { leaveLabel } from '@/lib/leave';
 import { hrUsers, leadUserOf, notifyUsers, usersOfEmployees } from '@/lib/push';
+import { canEditRole } from '@/lib/roles';
 import type { LeaveRequest, Settings } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
 
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: existing, error: exErr }, { data: emp }, leadStep] = await Promise.all([
-    admin.from('settings').select('*').eq('id', 1).single(),
+    admin.from('settings').select('*').eq('org_id', g.org.id).single(),
     admin.from('leave_requests').select('id, leave_type, start_date, end_date, days, status').eq('employee_id', empId)
       .gte('end_date', `${Number(input.start_date.slice(0, 4) || 2000) - 1}-01-01`),
     admin.from('employees').select('id, archived_at').eq('id', empId).maybeSingle(),
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
 
   // push: the team leader (who can decide in the app) and HR
   const name = await employeeName(empId);
-  const [leadUser, hr] = await Promise.all([leadUserOf(empId), hrUsers()]);
+  const [leadUser, hr] = await Promise.all([leadUserOf(empId), hrUsers(g.org.id)]);
   const note = { kind: 'leave_request', title: `Leave request: ${name}`, body: `${leaveLabel(input.leave_type)} · ${datesOf(input)} · ${v.days} day(s)` };
   await Promise.all([
     leadStep && leadUser ? notifyUsers([leadUser], { ...note, data: { screen: '/approvals', id: row.id } }) : Promise.resolve(),
@@ -91,7 +92,7 @@ export async function PATCH(req: Request) {
   const b = (await req.json().catch(() => ({}))) as { id?: string; action?: string; note?: string; as?: 'hr' | 'tl'; count_as?: 'paid' | 'unpaid' };
   if (!b.id) return NextResponse.json({ error: 'Missing request.' }, { status: 400 });
   const admin = supabaseAdmin();
-  const { data: found } = await admin.from('leave_requests').select('*').eq('id', b.id).maybeSingle();
+  const { data: found } = await admin.from('leave_requests').select('*').eq('id', b.id).eq('org_id', g.org.id).maybeSingle();
   if (!found) return NextResponse.json({ error: 'Leave request not found.' }, { status: 404 });
   const l = found as LeaveRequest;
   const own = !!g.profile.employee_id && g.profile.employee_id === l.employee_id;
@@ -117,7 +118,7 @@ export async function PATCH(req: Request) {
   if (own) return NextResponse.json({ error: 'You cannot decide your own leave.' }, { status: 403 });
   if (l.status === 'cancelled') return NextResponse.json({ error: 'The employee cancelled this request.' }, { status: 400 });
 
-  const canHr = g.profile.role === 'admin' || g.profile.role === 'editor';
+  const canHr = canEditRole(g.profile.role);
   const canTl = g.profile.role === 'team_lead' && !!g.profile.employee_id && (await teamIds(g.profile.employee_id)).includes(l.employee_id);
   const step: 'hr' | 'tl' | null = b.as === 'tl' ? (canTl ? 'tl' : null) : b.as === 'hr' ? (canHr ? 'hr' : null) : canHr ? 'hr' : canTl ? 'tl' : null;
   if (!step) return NextResponse.json({ error: 'You cannot decide this request.' }, { status: 403 });

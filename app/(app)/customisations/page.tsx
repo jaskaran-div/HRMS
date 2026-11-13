@@ -17,6 +17,8 @@ type Tab = 'templates' | 'sender';
 interface Row { type: string; title: string | null; subject: string; body: string; updated_at: string }
 const builtin = (t: string) => TEMPLATE_META.find(m => m.type === t);
 
+import { FeatureGate } from '@/components/AddonLocked';
+
 export default function CustomisationsPage() {
   const { isAdmin } = useApp();
   const [tab, setTab] = useState<Tab>('templates');
@@ -32,9 +34,9 @@ export default function CustomisationsPage() {
           <button key={k} className={tab === k ? 'on' : ''} onClick={() => { setTab(k); setEditing(null); }}>{l}</button>
         ))}
       </div>
-      {tab === 'templates' && (editing
+      {tab === 'templates' && <FeatureGate feature="email_center">{editing
         ? <TemplateEditor type={editing} onBack={() => setEditing(null)} />
-        : <TemplateList onEdit={setEditing} />)}
+        : <TemplateList onEdit={setEditing} />}</FeatureGate>}
       {tab === 'sender' && <SenderPrefs />}
     </>
   );
@@ -117,8 +119,8 @@ function TemplateEditor({ type, onBack }: { type: string; onBack: () => void }) 
     if (!meta && !title.trim()) { notify('Give the template a name.', 'err'); return; }
     setBusy(true);
     const { error } = await supabaseBrowser().from('email_templates').upsert(
-      { type, title: meta ? null : title.trim(), subject: subject.trim(), body: edit.current?.html() ?? html, updated_at: new Date().toISOString() },
-      { onConflict: 'type' });
+      { org_id: settings.org_id, type, title: meta ? null : title.trim(), subject: subject.trim(), body: edit.current?.html() ?? html, updated_at: new Date().toISOString() },
+      { onConflict: 'org_id,type' });
     setBusy(false);
     if (error) { notify(error.message, 'err'); return; }
     notify('Template saved');
@@ -185,7 +187,7 @@ function TemplateEditor({ type, onBack }: { type: string; onBack: () => void }) 
 function SenderPrefs() {
   const { settings, notify } = useApp();
   const router = useRouter();
-  const [f, setF] = useState({ sender_name: settings.sender_name ?? '', sender_email: settings.sender_email || 'hr@derivion.in', reply_to: settings.reply_to ?? '' });
+  const [f, setF] = useState({ sender_name: settings.sender_name ?? '', sender_email: settings.sender_email || '', reply_to: settings.reply_to ?? '', email_domains: settings.email_domains ?? '' });
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
 
@@ -195,7 +197,8 @@ function SenderPrefs() {
     setBusy(true);
     const { error } = await supabaseBrowser().from('settings').update({
       sender_name: f.sender_name.trim() || null, sender_email: f.sender_email.trim(), reply_to: f.reply_to.trim() || null,
-    }).eq('id', 1);
+      email_domains: f.email_domains.split(',').map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean).join(',') || null,
+    }).eq('id', settings.id);
     setBusy(false);
     if (error) { notify(error.message, 'err'); return; }
     notify('Saved');
@@ -209,6 +212,7 @@ function SenderPrefs() {
         <label>Sender name<input value={f.sender_name} onChange={set('sender_name')} placeholder={settings.company_name} /><span className="hint">Shown as the sender. Blank = company name.</span></label>
         <label>Sender email<input type="email" value={f.sender_email} onChange={set('sender_email')} required /><span className="hint">Emails are sent from this address. It must be allowed by your SMTP account.</span></label>
         <label>Reply-to (optional)<input type="email" value={f.reply_to} onChange={set('reply_to')} /></label>
+        <label>Official email domains<input value={f.email_domains} onChange={set('email_domains')} placeholder="company.com, company.in" /><span className="hint">Emails only go to addresses at these domains (never personal ones). Comma separated. Blank = the sender address’s domain.</span></label>
       </div>
       <div className="note" style={{ marginTop: 14 }}>
         The mail server login is <b>not</b> stored here. Set <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code> and <code>SMTP_PASS</code> in the server environment

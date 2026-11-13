@@ -4,7 +4,9 @@ import { redirect } from 'next/navigation';
 import { supabaseServer } from './supabase/server';
 import { supabaseAdmin } from './supabase/admin';
 import { officialEmailOf, phoneOf } from './official-email';
-import type { Employee, Profile, Settings } from './types';
+import { orgById } from './tenant';
+import { orgHasAccess, type Org } from './org';
+import type { Employee, Profile, Role, Settings } from './types';
 
 /**
  * Contact details often live only in the imported sheet's extra columns ("Official Mail Id", "Phone Number").
@@ -25,6 +27,7 @@ export type TeamMember = Pick<Employee, 'id' | 'emp_code' | 'name' | 'department
 export type SelfRecord = Omit<Employee, 'extra' | 'exit_type' | 'exit_remarks' | 'pf_amount' | 'tds_amount'>;
 
 export interface PortalSession {
+  org: Org;
   profile: Profile;
   settings: Settings;
   me: SelfRecord | null;
@@ -38,21 +41,28 @@ export const portalSession = cache(async (): Promise<PortalSession> => {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) redirect('/login');
   const admin = supabaseAdmin();
-  const { data: profile } = await admin.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  if (!profile || !profile.active) redirect('/api/logout');
+  const [{ data: profile }, { data: membership }] = await Promise.all([
+    admin.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+    admin.from('memberships').select('org_id, role, status').eq('user_id', user.id).maybeSingle(),
+  ]);
+  if (!profile || !profile.active || !membership || membership.status !== 'active') redirect('/api/logout');
+  const org = await orgById(membership.org_id);
+  if (!org) redirect('/api/logout');
+  if (!org.email_verified_at) redirect('/verify-email');
+  if (!orgHasAccess(org)) redirect('/locked');
   if (profile.must_change_password) redirect('/change-password');
-  const p = profile as Profile;
+  const p = { ...(profile as Profile), role: membership.role as Role };
 
   const [{ data: settings }, { data: me }] = await Promise.all([
-    admin.from('settings').select('*').eq('id', 1).single(),
+    admin.from('settings').select('*').eq('org_id', org.id).single(),
     p.employee_id ? admin.from('employees').select(`${SELF_COLUMNS}, extra`).eq('id', p.employee_id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
-  if (!settings) throw new Error('Settings row missing. Did you run supabase/schema.sql?');
+  if (!settings) throw new Error('Settings row missing. Did you run supabase/saas.sql?');
   const self = withContact(me as (SelfRecord & { extra: Record<string, string> }) | null) as SelfRecord | null;
   const { data: lead } = self?.team_lead_id
     ? await admin.from('employees').select(`${TEAM_COLUMNS}, extra`).eq('id', self.team_lead_id).maybeSingle()
     : { data: null };
-  return { profile: p, settings: settings as Settings, me: self, lead: withContact(lead as (TeamMember & { extra: Record<string, string> }) | null) as TeamMember | null, isLead: p.role === 'team_lead' };
+  return { org, profile: p, settings: settings as Settings, me: self, lead: withContact(lead as (TeamMember & { extra: Record<string, string> }) | null) as TeamMember | null, isLead: p.role === 'team_lead' };
 });
 
 /** Ids of everyone below this employee in the hierarchy. */

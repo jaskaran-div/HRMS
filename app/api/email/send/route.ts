@@ -6,6 +6,7 @@ import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } f
 import {
   baseVars, DEFAULT_TEMPLATES, fillTemplate, htmlToText, TEMPLATE_TYPES, wrapEmail, type EmailTemplateType,
 } from '@/lib/email-templates';
+import { EDIT_ROLES } from '@/lib/roles';
 import type { Settings } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +23,7 @@ const OPTIONAL_VARS = ['PayPeriodMonth', 'PayDate', 'NetPay', 'LastWorkingDay'];
 
 /** Emails a payslip / settlement PDF to each employee using the saved template. The PDFs are built in the browser and sent here. */
 export async function POST(req: Request) {
-  const g = await guard(['admin', 'editor']);
+  const g = await guard(EDIT_ROLES, { feature: 'payroll' });
   if (!g.ok) return g.response;
   if (!mailConfigured())
     return NextResponse.json({ error: 'Email is not set up yet: add SMTP_HOST, SMTP_USER and SMTP_PASS to the server environment.' }, { status: 503 });
@@ -35,9 +36,9 @@ export async function POST(req: Request) {
 
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: tpl }, { data: emps }] = await Promise.all([
-    admin.from('settings').select('*').eq('id', 1).single(),
-    admin.from('email_templates').select('subject, body').eq('type', type).maybeSingle(),
-    admin.from('employees').select('id, name, emp_code, email, extra').in('id', items.map(i => i.employee_id ?? '')),
+    admin.from('settings').select('*').eq('org_id', g.org.id).single(),
+    admin.from('email_templates').select('subject, body').eq('org_id', g.org.id).eq('type', type).maybeSingle(),
+    admin.from('employees').select('id, name, emp_code, email, extra').eq('org_id', g.org.id).in('id', items.map(i => i.employee_id ?? '')),
   ]);
   if (!settings) return NextResponse.json({ error: 'Company settings are missing.' }, { status: 500 });
   const s = settings as Settings;

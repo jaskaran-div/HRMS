@@ -14,7 +14,7 @@ import type { Employee } from '@/lib/types';
 const TEXT = ['department', 'designation', 'email', 'phone', 'emergency_name', 'emergency_phone', 'exit_type', 'exit_remarks', 'location', 'manager', 'bank_name', 'account_no', 'ifsc', 'pan', 'pf_no'] as const;
 
 export default function ImportPage() {
-  const { canEdit, notify } = useApp();
+  const { canEdit, notify, settings } = useApp();
   const [parsed, setParsed] = useState<ParsedEmployees | null>(null);
   const [existing, setExisting] = useState<Map<string, Employee>>(new Map());
   const [fileName, setFileName] = useState('');
@@ -54,12 +54,13 @@ export default function ImportPage() {
         tds_amount: f.tds_amount ?? old?.tds_amount ?? 0,
         extra: { ...(old?.extra ?? {}), ...p.extra },
         archived_at: old?.archived_at ?? null,
+        org_id: settings.org_id,
       };
       for (const k of TEXT) row[k] = (f as Record<string, string | undefined>)[k] ?? old?.[k] ?? null;
       return row;
     });
     for (let i = 0; i < payload.length; i += 200) {
-      const { error } = await sb().from('employees').upsert(payload.slice(i, i + 200), { onConflict: 'emp_code' });
+      const { error } = await sb().from('employees').upsert(payload.slice(i, i + 200), { onConflict: 'org_id,emp_code' });
       if (error) { notify(error.message, 'err'); setBusy(false); return; }
     }
     setBusy(false);

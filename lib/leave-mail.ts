@@ -28,7 +28,7 @@ export async function emailLeaveRequest(l: LeaveRequest, origin: string): Promis
   if (!mailConfigured()) return { ok: false, error: 'Email is not set up on the server yet (SMTP settings missing). Your request is saved; tell HR directly.' };
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: emp }] = await Promise.all([
-    admin.from('settings').select('*').eq('id', 1).single(),
+    admin.from('settings').select('*').eq('org_id', l.org_id).single(),
     admin.from('employees').select('id, name, emp_code, email, extra, department, team_lead_id').eq('id', l.employee_id).maybeSingle(),
   ]);
   if (!settings || !emp) return { ok: false, error: 'Employee not found.' };
@@ -73,7 +73,7 @@ export async function emailLeaveDecision(l: LeaveRequest): Promise<void> {
   if (!mailConfigured()) return;
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: emp }] = await Promise.all([
-    admin.from('settings').select('*').eq('id', 1).single(),
+    admin.from('settings').select('*').eq('org_id', l.org_id).single(),
     admin.from('employees').select('name, email, extra').eq('id', l.employee_id).maybeSingle(),
   ]);
   const to = officialEmailOf(emp);
@@ -100,7 +100,7 @@ ${table([
 async function parties(l: LeaveRequest) {
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: emp }] = await Promise.all([
-    admin.from('settings').select('*').eq('id', 1).single(),
+    admin.from('settings').select('*').eq('org_id', l.org_id).single(),
     admin.from('employees').select('id, name, emp_code, email, extra, department, team_lead_id').eq('id', l.employee_id).maybeSingle(),
   ]);
   if (!settings || !emp) return null;

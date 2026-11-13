@@ -86,7 +86,7 @@ export default function SettingsPage() {
       company_name: f.company_name.trim(), company_address: f.company_address.trim(), footer_note: f.footer_note.trim(), logo,
       paid_leave_per_month: num(f.paid_leave_per_month),
       short_leave_per_month: Math.round(num(f.short_leave_per_month)), hr_email: f.hr_email.trim() || null, basic_pct: num(f.basic_pct), hra_pct: num(f.hra_pct), conveyance_pct: num(f.conveyance_pct),
-    }).eq('id', 1);
+    }).eq('id', settings.id);
     setBusy(false);
     if (error) { notify(error.message, 'err'); return; }
     notify('Saved');

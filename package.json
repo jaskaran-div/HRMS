@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/run.ts && tsx --tsconfig tests/tsconfig.test.json tests/grid-smoke.tsx",
+    "test": "tsx tests/run.ts && tsx tests/saas.ts && tsx --tsconfig tests/tsconfig.test.json tests/grid-smoke.tsx",
     "create-admin": "node --env-file=.env.local scripts/create-admin.mjs"
   },
   "dependencies": {
@@ -18,6 +18,7 @@
     "pdfmake": "^0.3.13",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "stripe": "^17.7.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {

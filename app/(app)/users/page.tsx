@@ -13,26 +13,21 @@ import { officialEmailOf } from '@/lib/official-email';
 import type { Employee, Profile, Role } from '@/lib/types';
 
 import { ask } from '@/components/Dialog';
-const ROLES: Role[] = ['admin', 'editor', 'viewer', 'team_lead', 'employee'];
-const ROLE_NAME: Record<Role, string> = { admin: 'Admin (HR)', editor: 'Editor (HR)', viewer: 'Viewer (HR)', team_lead: 'Team leader', employee: 'Employee' };
-const ROLE_HELP: Record<Role, string> = {
-  admin: 'Everything, including user access and company settings',
-  editor: 'View, import, edit attendance, generate payslips, approve leave',
-  viewer: 'View only (employees, attendance, payslips)',
-  team_lead: 'Employee panel + their team (set under Teams & hierarchy): details, attendance, payslips, leave approval',
-  employee: 'Own profile, payslips and attendance; apply for leave',
-};
+import { Invitations } from '@/components/Invitations';
+import { assignableRoles, canManageTarget, ROLE_HELP, ROLE_LABEL as ROLE_NAME } from '@/lib/roles';
 const needsEmp = (r: Role) => r === 'team_lead' || r === 'employee';
 
 type Emp = Pick<Employee, 'id' | 'emp_code' | 'name' | 'archived_at' | 'email' | 'extra'>;
 type Mail = { ok: true; to: string[] } | { ok: false; error: string } | null;
 
 export default function UsersPage() {
-  const { profile, isAdmin, notify, mailReady } = useApp();
+  const { profile, canManageUsers, notify, mailReady } = useApp();
+  const ROLES = assignableRoles(profile.role);
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [touched, setTouched] = useState(false);
   const [role, setRole] = useState<Role>('employee');
+  const [tab, setTab] = useState<'invite' | 'direct'>('invite');
   const [empId, setEmpId] = useState('');
   const [mustChange, setMustChange] = useState(true);
   const [email, setEmail] = useState('');
@@ -45,12 +40,11 @@ export default function UsersPage() {
 
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
-    const [users, emps] = await Promise.all([
-      sb.from('profiles').select('*').order('created_at'),
+    const [res, emps] = await Promise.all([
+      fetch('/api/users').then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error ?? 'Could not load users'); return j as { users: Profile[] }; }),
       fetchAll<Emp>((a, b) => sb.from('employees').select('id, emp_code, name, archived_at, email, extra').order('emp_code').range(a, b)),
     ]);
-    if (users.error) throw new Error(users.error.message);
-    return { users: users.data as Profile[], emps };
+    return { users: res.users, emps };
   }, []);
   const users = data?.users ?? [];
   const emps = data?.emps ?? [];
@@ -64,7 +58,7 @@ export default function UsersPage() {
     return [u.full_name, u.username, u.role, e?.emp_code, e?.name].some(x => (x ?? '').toLowerCase().includes(t));
   });
 
-  if (!isAdmin) return <div className="note">Only admins can manage user access.</div>;
+  if (!canManageUsers) return <div className="note">Only the owner, admins and HR admins can manage user access.</div>;
 
   async function call(method: 'POST' | 'PATCH', body: object, quiet = false) {
     const res = await fetch('/api/users', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -146,8 +140,14 @@ export default function UsersPage() {
 
   return (
     <>
-      <div className="card">
+      <div className="row" style={{ marginBottom: 12 }}>
+        <button className={`btn ${tab === 'invite' ? 'primary' : ''}`} onClick={() => setTab('invite')}>Invite by email</button>
+        <button className={`btn ${tab === 'direct' ? 'primary' : ''}`} onClick={() => setTab('direct')}>Create login with username</button>
+      </div>
+      {tab === 'invite' && <Invitations emps={emps.filter(e => !linked.has(e.id) && !e.archived_at)} onAccepted={reload} />}
+      {tab === 'direct' && <div className="card">
         <h3>Give someone access</h3>
+        <p className="muted small" style={{ marginTop: 0 }}>For people you cannot reach by email: they get a username and a generated password. Inviting by email is safer — they choose their own password.</p>
         <form onSubmit={create}>
           <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))' }}>
             <label>Access level
@@ -168,7 +168,7 @@ export default function UsersPage() {
             </label>
             <label>Official email for login details{needsEmp(role) && empId ? ' (optional)' : ''}
               <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                placeholder={needsEmp(role) ? 'Filled from the employee’s official mail' : 'name@derivion.in'} />
+                placeholder={needsEmp(role) ? 'Filled from the employee’s official mail' : 'name@company.com'} />
               <span className="hint">{empId && !officialEmailOf(empBy.get(empId)) ? 'No official mail on this employee’s profile — type it here' : empId && email.trim() === officialEmailOf(empBy.get(empId)) ? 'From the employee profile (Official Mail Id)' : 'Username, password and the login link are sent here'}</span>
             </label>
             <label>Username
@@ -216,7 +216,7 @@ export default function UsersPage() {
             {bulk.failed.length > 0 && <p className="err small">{bulk.failed.slice(0, 10).join(' · ')}{bulk.failed.length > 10 ? ' …' : ''}</p>}
           </div>
         )}
-      </div>
+      </div>}
 
       <div className="card">
         <div className="row">
@@ -231,17 +231,18 @@ export default function UsersPage() {
             <tbody>
               {shown.map(u => {
                 const me = u.id === profile.id;
+                const can = !me && canManageTarget(profile.role, u.role);
                 return (
                   <tr key={u.id}>
                     <td><b>{u.full_name}</b>{me && <span className="muted small"> (you)</span>}</td>
                     <td>{u.username}<EmailCell u={u} fallback={u.employee_id ? officialEmailOf(empBy.get(u.employee_id)) : null} onSave={email => act(u, 'set_email', { email })} /></td>
                     <td>
-                      <select value={u.role} disabled={me} onChange={e => act(u, 'set_role', { role: e.target.value })}>
-                        {ROLES.map(r => <option key={r} value={r}>{ROLE_NAME[r]}</option>)}
+                      <select value={u.role} disabled={!can} onChange={e => act(u, 'set_role', { role: e.target.value })}>
+                        {[...new Set([u.role, ...ROLES])].map(r => <option key={r} value={r} disabled={r !== u.role && !ROLES.includes(r)}>{ROLE_NAME[r]}</option>)}
                       </select>
                     </td>
                     <td>
-                      <select value={u.employee_id ?? ''} onChange={e => act(u, 'set_employee', { employee_id: e.target.value || null })} style={{ maxWidth: 220 }}>
+                      <select value={u.employee_id ?? ''} disabled={!can && !me} onChange={e => act(u, 'set_employee', { employee_id: e.target.value || null })} style={{ maxWidth: 220 }}>
                         <option value="">— none —</option>
                         {emps.filter(e => e.id === u.employee_id || !linked.has(e.id)).map(e => <option key={e.id} value={e.id}>{empLabel(e)}</option>)}
                       </select>
@@ -249,12 +250,14 @@ export default function UsersPage() {
                     <td>{!u.active ? <span className="pill bad">Disabled</span> : u.must_change_password ? <span className="pill warn">Hasn&apos;t set own password</span> : <span className="pill ok">Active</span>}</td>
                     <td>{fmtDate(u.created_at)}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button className="btn sm" onClick={() => setPwFor(u)}>Set password</button>{' '}
-                      <button className="btn sm" onClick={() => act(u, 'reset_password')}>Reset to default</button>{' '}
-                      {u.active
-                        ? <button className="btn sm danger" disabled={me} onClick={() => act(u, 'deactivate')}>Disable</button>
-                        : <button className="btn sm" onClick={() => act(u, 'activate')}>Enable</button>}{' '}
-                      <button className="btn sm danger" disabled={me} onClick={() => act(u, 'delete')} title="Delete this login (the employee record stays)">Delete</button>
+                      {(can || me) && <button className="btn sm" onClick={() => setPwFor(u)}>Set password</button>}{' '}
+                      {can && <>
+                        <button className="btn sm" onClick={() => act(u, 'reset_password')}>Reset to default</button>{' '}
+                        {u.active
+                          ? <button className="btn sm danger" onClick={() => act(u, 'deactivate')}>Disable</button>
+                          : <button className="btn sm" onClick={() => act(u, 'activate')}>Enable</button>}{' '}
+                        <button className="btn sm danger" onClick={() => act(u, 'delete')} title="Delete this login (the employee record stays)">Delete</button>
+                      </>}
                     </td>
                   </tr>
                 );
@@ -278,7 +281,7 @@ function EmailCell({ u, fallback, onSave }: { u: Profile; fallback: string | nul
       <a href="#" style={{ color: 'inherit' }} title={u.email ? 'Email for login details (click to change)' : fallback ? 'From the employee record (click to set a different one)' : 'Click to add an email for login details'}
         onClick={async e => {
           e.preventDefault();
-          const v = await ask.prompt({ title: `Email for ${u.full_name}`, inputType: 'email', defaultValue: u.email ?? '', placeholder: fallback ?? 'name@derivion.in',
+          const v = await ask.prompt({ title: `Email for ${u.full_name}`, inputType: 'email', defaultValue: u.email ?? '', placeholder: fallback ?? 'name@company.com',
             label: 'Official email for login details and password emails', confirmText: 'Save',
             message: fallback ? `Leave empty to use the official mail from the employee profile (${fallback}).` : undefined,
             validate: x => (!x || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x) ? null : 'That email address does not look right.') });

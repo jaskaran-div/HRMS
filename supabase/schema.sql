@@ -1,5 +1,8 @@
 -- HR Portal schema. Run once in Supabase → SQL Editor → New query → Run.
 -- Safe to re-run: every statement is idempotent.
+-- THEN ALWAYS RUN supabase/saas.sql: it adds organizations and replaces the policies below with
+-- organization-scoped ones. Running this file alone on a multi-organization database would
+-- temporarily restore the old single-company rules.
 
 ------------------------------------------------------------------------------
 -- Users (logins live in Supabase Auth; this table holds username + role)
@@ -48,7 +51,12 @@ create table if not exists public.settings (
   -- special allowance = whatever is left of 100%
   constraint pct_total check (basic_pct + hra_pct + conveyance_pct <= 100)
 );
-insert into public.settings (id) values (1) on conflict (id) do nothing;
+-- (only before saas.sql: after it, each organization gets its own settings row when it registers)
+do $$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'settings' and column_name = 'org_id') then
+    insert into public.settings (id) values (1) on conflict (id) do nothing;
+  end if;
+end $$;
 
 -- Sender Email Preferences (the SMTP login itself lives in the server environment, never in the database)
 alter table public.settings add column if not exists sender_name text;

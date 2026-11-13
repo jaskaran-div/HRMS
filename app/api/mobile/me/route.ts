@@ -3,6 +3,7 @@ import { mobileSession, mobileTeam } from '@/lib/mobile';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { quotaFor } from '@/lib/leave';
 import { todayIST } from '@/lib/geo';
+import { orgFeatures } from '@/lib/org';
 import type { LeaveRequest } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -11,14 +12,17 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const r = await mobileSession();
   if (!r.ok) return r.response;
-  const { profile, settings: st, me, lead, isLead } = r.s;
+  const { org, profile, settings: st, me, lead, isLead } = r.s;
+  const features = orgFeatures(org);
   const admin = supabaseAdmin();
   const today = todayIST();
   const month = `${today.slice(0, 7)}-01`;
 
   const [{ data: leaves }, { data: slip }, { data: att }, { data: punch }, { count: unread }, team] = await Promise.all([
     admin.from('leave_requests').select('id, leave_type, start_date, days, status').eq('employee_id', me.id).gte('end_date', month),
-    admin.from('payslips').select('month, net_pay').eq('employee_id', me.id).order('month', { ascending: false }).limit(1).maybeSingle(),
+    features.includes('payroll')
+      ? admin.from('payslips').select('month, net_pay').eq('employee_id', me.id).order('month', { ascending: false }).limit(1).maybeSingle()
+      : Promise.resolve({ data: null }),
     admin.from('attendance').select('month, present_days').eq('employee_id', me.id).eq('month', month).maybeSingle(),
     admin.from('attendance_punches').select('*').eq('employee_id', me.id).eq('day', today).maybeSingle(),
     admin.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', profile.id).is('read_at', null),
@@ -36,6 +40,7 @@ export async function GET() {
     profile: { id: profile.id, username: profile.username, full_name: profile.full_name, role: profile.role, must_change_password: profile.must_change_password },
     me, lead: lead ? { name: lead.name, email: lead.email, phone: lead.phone } : null, isLead,
     company: { name: st.company_name, logo: st.logo },
+    organization: { id: org.id, name: org.name, status: org.status, features },
     office: st.office_lat != null && st.office_lng != null ? { lat: st.office_lat, lng: st.office_lng, radius_m: st.office_radius_m ?? 100 } : null,
     today, punch: punch ?? null,
     quota: q,

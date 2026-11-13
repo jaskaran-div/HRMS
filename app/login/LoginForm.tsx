@@ -11,7 +11,7 @@ export function Logo({ company, logo, className = 'logo' }: { company: string; l
   return <div className={`${className} ${logo ? 'has-img' : ''}`}>{logo ? <img src={logo} alt={company} /> : initials(company)}</div>;
 }
 
-export function LoginForm({ company, logo }: { company: string; logo: string | null }) {
+export function LoginForm({ company, logo, notice }: { company: string; logo: string | null; notice?: string | null }) {
   const [entering, setEntering] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -23,9 +23,13 @@ export function LoginForm({ company, logo }: { company: string; logo: string | n
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const { error } = await supabaseBrowser().auth.signInWithPassword({ email: toEmail(username.trim()), password });
+      // an email (organization owners, invited people) is used as is; a username maps to username@LOGIN_DOMAIN
+      const id = username.trim();
+      const { error } = await supabaseBrowser().auth.signInWithPassword({ email: id.includes('@') ? id.toLowerCase() : toEmail(id), password });
       if (error) {
-        setError(/fetch|network/i.test(error.message) ? 'Could not reach the server. Check your internet connection.' : 'Wrong username or password.');
+        setError(/fetch|network/i.test(error.message) ? 'Could not reach the server. Check your internet connection.'
+          : /not confirmed/i.test(error.message) ? 'Verify your email first — check your inbox for the link (or register again to resend it).'
+          : 'Wrong email / username or password.');
         setBusy(false);
         return;
       }
@@ -69,10 +73,11 @@ export function LoginForm({ company, logo }: { company: string; logo: string | n
         <form className="login" onSubmit={submit}>
           <Logo company={company} logo={logo} />
           <h1>Welcome back</h1>
-          <p className="sub">Log in to {company} HR Portal with your username and password.</p>
+          <p className="sub">Log in to {company} with your email or username and password.</p>
+          {notice && !error && <p className="note" role="status">{notice}</p>}
           {error && <p className="err-line" role="alert"><Icon name="alert" size={16} />{error}</p>}
-          <label>Username
-            <input value={username} onChange={e => setUsername(e.target.value)} autoFocus autoComplete="username" autoCapitalize="none" spellCheck={false} required placeholder="e.g. isftd0007" />
+          <label>Email or username
+            <input value={username} onChange={e => setUsername(e.target.value)} autoFocus autoComplete="username" autoCapitalize="none" spellCheck={false} required placeholder="you@company.com" />
           </label>
           <label>Password
             <div className="pw-field">
@@ -84,6 +89,7 @@ export function LoginForm({ company, logo }: { company: string; logo: string | n
           </label>
           <button className="btn primary" disabled={busy}>{busy ? <><Spinner size={16} /> Logging in…</> : 'Log in'}</button>
           <p className="login-foot">Forgot your password? Ask HR to set a new one.</p>
+          <p className="login-foot">New organization? <a href="/register">Register</a> · <a href="/contact-sales">Contact Sales</a></p>
         </form>
       </div>
     </div>

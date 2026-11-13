@@ -23,7 +23,13 @@ import { officialEmailOf } from '@/lib/official-email';
 const KEEP_MONTHS = 2;
 const NO_MAIL = 'Email is not set up on the server yet: add SMTP_HOST, SMTP_USER and SMTP_PASS to .env.local (and to Vercel → Settings → Environment Variables), then restart / redeploy.';
 
-export default function PayrollPage() {
+import { FeatureGate } from '@/components/AddonLocked';
+
+export default function PayrollPageGate() {
+  return <FeatureGate feature="payroll"><PayrollPage /></FeatureGate>;
+}
+
+function PayrollPage() {
   const { canEdit, settings, notify, mailReady } = useApp();
   const rules = rulesFrom(settings);
   const company = { name: settings.company_name, address: settings.company_address, logo: settings.logo, footer: settings.footer_note };

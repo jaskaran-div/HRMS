@@ -1,7 +1,13 @@
-export type Role = 'admin' | 'editor' | 'viewer' | 'team_lead' | 'employee';
+/**
+ * Organization roles (memberships.role; mirrored on profiles.role).
+ * owner = registered the organization (billing, ownership); admin = organization admin; hr_admin = HR + manages
+ * team leader / employee logins; editor = HR (legacy); viewer = HR read only; team_lead; employee.
+ * See lib/roles.ts for what each may do.
+ */
+export type Role = 'owner' | 'admin' | 'hr_admin' | 'editor' | 'viewer' | 'team_lead' | 'employee';
 
 /** HR staff use the main app; team leaders and employees use /portal. */
-export const STAFF_ROLES: Role[] = ['admin', 'editor', 'viewer'];
+export const STAFF_ROLES: Role[] = ['owner', 'admin', 'hr_admin', 'editor', 'viewer'];
 export const PORTAL_ROLES: Role[] = ['team_lead', 'employee'];
 export const isStaff = (r: Role) => STAFF_ROLES.includes(r);
 
@@ -10,6 +16,7 @@ export interface Profile {
   username: string;
   full_name: string;
   role: Role;
+  org_id: string;
   active: boolean;
   must_change_password: boolean;
   employee_id: string | null;
@@ -19,7 +26,10 @@ export interface Profile {
 }
 
 export interface Settings {
-  id: 1;
+  id: number;
+  org_id: string;
+  /** comma separated domains that count as official email addresses for this organization */
+  email_domains?: string | null;
   company_name: string;
   company_address: string;
   logo: string | null;
@@ -156,6 +166,7 @@ export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 export interface LeaveRequest {
   id: string;
   employee_id: string;
+  org_id: string;
   leave_type: LeaveType;
   start_date: string;
   end_date: string;

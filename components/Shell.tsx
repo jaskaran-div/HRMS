@@ -8,30 +8,36 @@ import { Icon } from './Icon';
 import { TopProgress } from './ui';
 import { initials } from '@/lib/format';
 import { supabaseBrowser } from '@/lib/supabase/client';
+import { ROLE_LABEL } from '@/lib/roles';
+import type { Feature } from '@/lib/billing/catalog';
 
-export interface NavItem { href: string; icon: string; label: string; sub: string; edit?: boolean }
+export interface NavItem { href: string; icon: string; label: string; sub: string; edit?: boolean; feature?: Feature }
 
 const NAV: NavItem[] = [
   { href: '/', icon: 'home', label: 'Dashboard', sub: 'Your company at a glance.' },
   { href: '/employees', icon: 'users', label: 'Employees', sub: 'Everyone on the payroll, their details and documents.' },
   { href: '/attendance', icon: 'calendar', label: 'Attendance', sub: 'Mark attendance day by day, or upload the monthly sheet.' },
   { href: '/checkins', icon: 'clock', label: 'App check-ins', sub: 'Who checked in from the mobile app, when, and how far from the office.' },
-  { href: '/payroll', icon: 'wallet', label: 'Payroll & Payslips', sub: 'Check the numbers, generate payslips and email them.' },
+  { href: '/payroll', icon: 'wallet', label: 'Payroll & Payslips', sub: 'Check the numbers, generate payslips and email them.', feature: 'payroll' },
   { href: '/leaves', icon: 'plane', label: 'Leave', sub: 'Leave requests from employees — approve, decline and history.' },
   { href: '/teams', icon: 'network', label: 'Teams & hierarchy', sub: 'Who reports to whom. Team leaders see their team.' },
-  { href: '/documents', icon: 'folder', label: 'Documents', sub: 'Company documents and each employee’s files.' },
+  { href: '/documents', icon: 'folder', label: 'Documents', sub: 'Company documents and each employee’s files.', feature: 'documents' },
   { href: '/import', icon: 'upload', label: 'Import / Export', sub: 'Bring employees in from a sheet, or export everything.', edit: true },
 ];
-const ADMIN_NAV: NavItem[] = [
-  { href: '/settings', icon: 'building', label: 'Company & Rules', sub: 'Company details, logo, pay and leave rules.' },
-  { href: '/customisations', icon: 'mail', label: 'Customisations', sub: 'Email templates and the sender address.' },
-  { href: '/users', icon: 'key', label: 'User Access', sub: 'Logins for HR, team leaders and employees.' },
+type AdminItem = NavItem & { who: 'admin' | 'users' | 'billing' };
+const ADMIN_NAV: AdminItem[] = [
+  { href: '/settings', icon: 'building', label: 'Company & Rules', sub: 'Company details, logo, pay and leave rules.', who: 'admin' },
+  { href: '/customisations', icon: 'mail', label: 'Customisations', sub: 'Email templates and the sender address.', who: 'admin' },
+  { href: '/users', icon: 'key', label: 'User Access', sub: 'Invite people, manage logins and roles.', who: 'users' },
+  { href: '/audit', icon: 'clock', label: 'Audit log', sub: 'Role changes, invitations, deactivations, ownership and billing events.', who: 'admin' },
+  { href: '/organization', icon: 'network', label: 'Organization', sub: 'Ownership and organization details.', who: 'admin' },
+  { href: '/billing', icon: 'receipt', label: 'Billing', sub: 'Subscription, add-ons, invoices and payment history.', who: 'billing' },
 ];
 const EXTRA: Omit<NavItem, 'icon'>[] = [
   { href: '/change-password', label: 'Change password', sub: '' },
 ];
 
-const ROLE_NAME: Record<string, string> = { admin: 'HR · Admin', editor: 'HR · Editor', viewer: 'HR · Viewer', team_lead: 'Team leader', employee: 'Employee' };
+const ROLE_NAME: Record<string, string> = ROLE_LABEL;
 
 /** Remembers whether the sidebar is collapsed (per browser). */
 function useCollapsed(): [boolean, () => void] {
@@ -41,8 +47,8 @@ function useCollapsed(): [boolean, () => void] {
 }
 
 /** Sidebar + top bar shared by the HR app and the employee panel. */
-export function Frame({ nav, adminNav = [], panelName, search, bell, menu, children }: {
-  nav: NavItem[]; adminNav?: NavItem[]; panelName: string; search?: React.ReactNode;
+export function Frame({ nav, adminNav = [], panelName, search, bell, menu, banner, children }: {
+  nav: NavItem[]; adminNav?: NavItem[]; panelName: string; search?: React.ReactNode; banner?: React.ReactNode;
   bell?: { count: number; href: string; label: string } | null; menu: React.ReactNode; children: React.ReactNode;
 }) {
   const { profile, settings } = useApp();
@@ -109,6 +115,7 @@ export function Frame({ nav, adminNav = [], panelName, search, bell, menu, child
           </div>
         </div>
         <main>
+          {banner}
           {page && page.href !== home && (
             <div className="pagehead">
               <h1>{page.label}</h1>
@@ -133,7 +140,7 @@ export function MenuFoot() {
 }
 
 export function Shell({ children }: { children: React.ReactNode }) {
-  const { profile, isAdmin, canEdit } = useApp();
+  const { profile, isAdmin, canEdit, canManageUsers, isOwner, has, org } = useApp();
   const path = usePathname();
   const router = useRouter();
   const [q, setQ] = useState('');
@@ -190,7 +197,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <Frame
-      nav={NAV.filter(n => !n.edit || canEdit)} adminNav={isAdmin ? ADMIN_NAV : []} panelName="HR Portal" search={search}
+      nav={NAV.filter(n => (!n.edit || canEdit) && (!n.feature || has(n.feature)))}
+      adminNav={ADMIN_NAV.filter(n => (n.who === 'admin' ? isAdmin : n.who === 'users' ? canManageUsers : isOwner || isAdmin) && (!n.feature || has(n.feature)))}
+      panelName="HR Portal" search={search}
+      banner={org.pastDue ? <div className="note warn" style={{ marginBottom: 12 }}>The last subscription payment failed. Stripe is retrying; {isOwner ? <Link href="/billing">update the payment method in Billing</Link> : 'ask the owner to update the payment method'} to avoid losing access.</div> : null}
       bell={{ count: pending, href: '/leaves', label: pending ? `${pending} leave request(s) waiting for HR` : 'No leave requests waiting' }}
       menu={<>
         <div className="mi-head"><b>{profile.full_name}</b><small>{profile.username}</small></div>

@@ -23,14 +23,22 @@ export function senderOf(s: Pick<Settings, 'company_name' | 'sender_name' | 'sen
  * Mail goes only to official company addresses, never personal ones.
  * COMPANY_EMAIL_DOMAINS (comma separated, e.g. "derivion.in,isft.in") lists them; if unset, the domain of the sender address is used.
  */
-export function officialDomains(s?: Pick<Settings, 'sender_email'> | null): string[] {
+type DomainSource = Pick<Settings, 'sender_email'> & Partial<Pick<Settings, 'email_domains' | 'id'>>;
+
+/**
+ * Per organization: settings.email_domains. If blank, the first organization (settings id 1, Derivion) keeps using
+ * COMPANY_EMAIL_DOMAINS from the environment as before; any other organization uses its sender address's domain.
+ */
+export function officialDomains(s?: DomainSource | null): string[] {
+  const own = s?.email_domains?.trim();
   const env = process.env.COMPANY_EMAIL_DOMAINS;
-  const list = env ? env.split(',') : [((s?.sender_email || 'hr@derivion.in').split('@')[1] ?? '')];
+  const legacy = !s || s.id === undefined || s.id === 1;
+  const list = own ? own.split(',') : env && legacy ? env.split(',') : [((s?.sender_email || 'hr@derivion.in').split('@')[1] ?? '')];
   return list.map(x => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
 }
-export function isOfficial(email: string | null | undefined, s?: Pick<Settings, 'sender_email'> | null): boolean {
+export function isOfficial(email: string | null | undefined, s?: DomainSource | null): boolean {
   const d = (email ?? '').trim().toLowerCase().split('@')[1];
   return !!d && officialDomains(s).some(x => d === x || d.endsWith('.' + x));
 }
-export const notOfficialMsg = (s?: Pick<Settings, 'sender_email'> | null) =>
+export const notOfficialMsg = (s?: DomainSource | null) =>
   `Not an official company email (only @${officialDomains(s).join(', @')} addresses get mail).`;

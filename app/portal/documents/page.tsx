@@ -1,4 +1,6 @@
 import { portalSession } from '@/lib/portal';
+import { AddonLocked } from '@/components/AddonLocked';
+import { orgFeatures } from '@/lib/org';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { fmtDate } from '@/lib/dates';
 import { fileSize } from '@/lib/format';
@@ -31,9 +33,10 @@ function DocTable({ docs }: { docs: DocumentRow[] }) {
 
 export default async function MyDocuments() {
   const s = await portalSession();
+  if (!orgFeatures(s.org).includes('documents')) return <AddonLocked feature="documents" />;
   const admin = supabaseAdmin();
   const [company, mine] = await Promise.all([
-    admin.from('documents').select('*').is('employee_id', null).order('created_at', { ascending: false }),
+    admin.from('documents').select('*').eq('org_id', s.org.id).is('employee_id', null).order('created_at', { ascending: false }),
     admin.from('documents').select('*').eq('employee_id', s.me!.id).eq('visible_to_employee', true).order('created_at', { ascending: false }),
   ]);
   return (
