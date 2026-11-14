@@ -5,6 +5,7 @@ import { mailConfigured } from '@/lib/mailer';
 import { shiftMonth, todayISO } from '@/lib/dates';
 import { LeaveCenter } from '@/components/portal/LeaveCenter';
 import type { LeaveRequest } from '@/lib/types';
+import type { MarkedMonth } from '@/lib/leave';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,12 +13,15 @@ export const dynamic = 'force-dynamic';
 export default async function LeavePage() {
   const s = await portalSession();
   const since = shiftMonth(`${todayISO().slice(0, 7)}-01`, -12);
-  const { data } = await supabaseAdmin().from('leave_requests').select('*').eq('employee_id', s.me!.id)
-    .gte('end_date', since).order('start_date', { ascending: false });
+  const admin = supabaseAdmin();
+  const [{ data }, { data: marked }] = await Promise.all([
+    admin.from('leave_requests').select('*').eq('employee_id', s.me!.id).gte('end_date', since).order('start_date', { ascending: false }),
+    admin.from('attendance').select('month, daily, short_leave_days, leave_days').eq('employee_id', s.me!.id).gte('month', since),
+  ]);
   const recipients = [s.lead?.email ? `${s.lead.name} (team leader)` : null, hrAddress(s.settings) ? 'HR' : null].filter(Boolean) as string[];
   return (
     <LeaveCenter
-      leaves={(data ?? []) as LeaveRequest[]} today={todayISO()} mailReady={mailConfigured()} recipients={recipients}
+      leaves={(data ?? []) as LeaveRequest[]} marked={(marked ?? []) as MarkedMonth[]} today={todayISO()} mailReady={mailConfigured()} recipients={recipients}
       quota={{ short_leave_per_month: s.settings.short_leave_per_month, paid_leave_per_month: s.settings.paid_leave_per_month }}
     />
   );

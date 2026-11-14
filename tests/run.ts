@@ -235,6 +235,23 @@ test('leave: quota per month; used short / paid leave is no longer offered', () 
 
 
 
+test('leave: short / paid leave HR marked in the attendance calendar uses up the allowance', () => {
+  const nov = (daily: Record<string, string>) => [{ month: '2026-11-01', daily }];
+  let q = quotaFor([], '2026-11-01', Q, undefined, nov({ '3': 'S', '5': 'L', '6': 'P' }));
+  assert.equal(q.shortLeft, 0); assert.equal(q.paidLeft, 0);
+  assert.deepEqual(availableTypes(q), ['paid', 'unpaid']);
+  // an approved request HR also marked on the same day counts once
+  q = quotaFor([L('a', 'short', '2026-11-03', undefined, 'approved')], '2026-11-01', { ...Q, short_leave_per_month: 2 }, undefined, nov({ '3': 'S' }));
+  assert.equal(q.shortLeft, 1);
+  // another month's marks do not count
+  assert.equal(quotaFor([], '2026-12-01', Q, undefined, nov({ '3': 'S' })).shortLeft, 1);
+  // imported as monthly totals only
+  assert.equal(quotaFor([], '2026-11-01', Q, undefined, [{ month: '2026-11-01', daily: null, short_leave_days: 1, leave_days: 1 }]).paidLeft, 0);
+  // applying for short leave is refused once HR marked one
+  const v = validateLeave({ leave_type: 'short', start_date: '2026-11-12', end_date: '2026-11-12' }, [], Q, '2026-11-10', nov({ '3': 'S' }));
+  assert.equal(v.ok, false);
+});
+
 test('leave: validation', () => {
 
   const today = '2026-11-10';

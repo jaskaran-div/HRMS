@@ -25,8 +25,8 @@ export default async function PortalHome() {
     myTeam(s),
   ]);
   const ls = (leaves ?? []) as LeaveRequest[];
-  const q = quotaFor(ls, month, s.settings);
   const a = att as (Pick<Attendance, 'month' | 'daily' | 'present_days' | 'absent_days' | 'half_days' | 'leave_days' | 'short_leave_days'>) | null;
+  const q = quotaFor(ls, month, s.settings, undefined, a ? [a] : []);
 
   // attendance circles: what HR marked, plus approved leave on days not marked yet
   const stripMonth = a?.month ?? month;

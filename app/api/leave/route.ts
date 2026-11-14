@@ -52,9 +52,13 @@ export async function POST(req: Request) {
     admin.from('employees').select('id, archived_at').eq('id', empId).maybeSingle(),
     hasLeadStep(empId),
   ]);
+  // short / paid leave HR already marked in the attendance calendar uses up the same monthly allowance
+  const { data: marked } = /^\d{4}-\d{2}/.test(input.start_date)
+    ? await admin.from('attendance').select('month, daily, short_leave_days, leave_days').eq('employee_id', empId).eq('month', `${input.start_date.slice(0, 7)}-01`)
+    : { data: [] };
   if (exErr) return NextResponse.json({ error: exErr.message }, { status: 500 });
   if (!emp || emp.archived_at) return NextResponse.json({ error: 'Your employee record is inactive.' }, { status: 403 });
-  const v = validateLeave(input, (existing ?? []) as LeaveRequest[], settings as Settings, todayISO());
+  const v = validateLeave(input, (existing ?? []) as LeaveRequest[], settings as Settings, todayISO(), marked ?? []);
   if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
 
   const { data: row, error } = await admin.from('leave_requests').insert({

@@ -36,17 +36,50 @@ export function workingDays(start: string, end: string): number {
 
 export interface Quota { shortLeft: number; paidLeft: number; shortPerMonth: number; paidPerMonth: number }
 
-/** What is left this month (`month` = YYYY-MM-01) after the employee's existing requests. `ignoreId` = the request being edited. */
+/** What HR marked in the attendance calendar for one month (S = short leave, L = paid leave), or the imported totals. */
+export interface MarkedMonth { month: string; daily: Record<string, string> | null; short_leave_days?: number | null; leave_days?: number | null }
+
+/**
+ * What is left this month (`month` = YYYY-MM-01) after the employee's existing requests AND the short / paid leave
+ * HR marked in the attendance calendar. A day counted by both (an approved request HR also marked) counts once.
+ * `ignoreId` = the request being edited.
+ */
 export function quotaFor(
-  leaves: Pick<LeaveRequest, 'id' | 'leave_type' | 'start_date' | 'days' | 'status'>[],
+  leaves: (Pick<LeaveRequest, 'id' | 'leave_type' | 'start_date' | 'days' | 'status'> & { end_date?: string })[],
   month: string, s: Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month'>, ignoreId?: string,
+  marked?: MarkedMonth[] | null,
 ): Quota {
   const ym = month.slice(0, 7);
   const mine = leaves.filter(l => l.id !== ignoreId && counts(l) && l.start_date.slice(0, 7) === ym);
   const shortPerMonth = Number(s.short_leave_per_month ?? 1);
   const paidPerMonth = Number(s.paid_leave_per_month ?? 1);
-  const shortUsed = mine.filter(l => l.leave_type === 'short').length;
-  const paidUsed = mine.filter(l => l.leave_type === 'paid').reduce((n, l) => n + Number(l.days), 0);
+
+  const shortDays = new Set(mine.filter(l => l.leave_type === 'short').map(l => l.start_date));
+  const paidDays = new Set<string>();
+  let paidOther = 0; // paid requests without an end date (should not happen): counted by their days
+  for (const l of mine.filter(x => x.leave_type === 'paid')) {
+    const end = l.end_date;
+    if (!end) { paidOther += Number(l.days); continue; }
+    for (let d = parse(l.start_date); iso(d) <= end && iso(d).slice(0, 7) === ym; d.setDate(d.getDate() + 1))
+      if (!isWeekOff(iso(d))) paidDays.add(iso(d));
+  }
+  let shortUsed = shortDays.size;
+  let paidUsed = paidDays.size + paidOther;
+
+  const row = marked?.find(r => r.month.slice(0, 7) === ym);
+  if (row?.daily && Object.keys(row.daily).length) {
+    for (const [d, code] of Object.entries(row.daily)) {
+      const day = `${ym}-${pad(Number(d))}`;
+      if (code === 'S') shortDays.add(day);
+      else if (code === 'L') paidDays.add(day);
+    }
+    shortUsed = shortDays.size;
+    paidUsed = paidDays.size + paidOther;
+  } else if (row) {
+    // imported as monthly totals only (no day-by-day calendar)
+    shortUsed = Math.max(shortUsed, Number(row.short_leave_days ?? 0));
+    paidUsed = Math.max(paidUsed, Number(row.leave_days ?? 0));
+  }
   return { shortPerMonth, paidPerMonth, shortLeft: Math.max(0, shortPerMonth - shortUsed), paidLeft: Math.max(0, paidPerMonth - paidUsed) };
 }
 
@@ -73,7 +106,7 @@ const MAX_UNPAID_DAYS = 31;
  */
 export function validateLeave(
   input: LeaveInput, existing: Pick<LeaveRequest, 'id' | 'leave_type' | 'start_date' | 'end_date' | 'days' | 'status'>[],
-  s: Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month'>, today: string,
+  s: Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month'>, today: string, marked?: MarkedMonth[] | null,
 ): { ok: true; days: number; overQuota: boolean } | { ok: false; error: string } {
   const { leave_type: t, start_date: a } = input;
   const b = t === 'short' ? a : input.end_date || a;
@@ -93,7 +126,7 @@ export function validateLeave(
   if (t === 'short' && isWeekOff(a)) return { ok: false, error: 'That day is a week off.' };
 
   if (t !== 'unpaid' && a.slice(0, 7) !== b.slice(0, 7)) return { ok: false, error: 'Paid leave must be within one month.' };
-  const q = quotaFor(existing, `${a.slice(0, 7)}-01`, s);
+  const q = quotaFor(existing, `${a.slice(0, 7)}-01`, s, undefined, marked);
   if (t === 'short' && q.shortLeft <= 0)
     return { ok: false, error: `Your short leave for this month is used (${q.shortPerMonth} per month). Apply as absent instead.` };
   if (t !== 'short' && days > MAX_UNPAID_DAYS) return { ok: false, error: `Apply for at most ${MAX_UNPAID_DAYS} working days at a time.` };

@@ -5,14 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '../AppContext';
 import { LeaveStatus } from '../LeaveStatus';
 import { fmtDate, monthLabel } from '@/lib/dates';
-import { availableTypes, LEAVE_TYPES, leaveLabel, quotaFor, validateLeave } from '@/lib/leave';
+import { availableTypes, LEAVE_TYPES, leaveLabel, quotaFor, validateLeave, type MarkedMonth } from '@/lib/leave';
 import type { LeaveRequest, LeaveType, Settings } from '@/lib/types';
 
 import { ask } from '../Dialog';
 type QuotaSettings = Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month'>;
 
-export function LeaveCenter({ leaves, today, quota, mailReady, recipients }: {
-  leaves: LeaveRequest[]; today: string; quota: QuotaSettings; mailReady: boolean; recipients: string[];
+export function LeaveCenter({ leaves, marked, today, quota, mailReady, recipients }: {
+  leaves: LeaveRequest[]; marked?: MarkedMonth[]; today: string; quota: QuotaSettings; mailReady: boolean; recipients: string[];
 }) {
   const { notify } = useApp();
   const router = useRouter();
@@ -24,10 +24,10 @@ export function LeaveCenter({ leaves, today, quota, mailReady, recipients }: {
   const [busy, setBusy] = useState<string | null>(null);
 
   const month = `${(start || today).slice(0, 7)}-01`;
-  const q = useMemo(() => quotaFor(leaves, month, quota), [leaves, month, quota]);
+  const q = useMemo(() => quotaFor(leaves, month, quota, undefined, marked), [leaves, month, quota, marked]);
   const options = availableTypes(q);
   const chosen: LeaveType = type && options.includes(type) ? type : options[0];
-  const check = start ? validateLeave({ leave_type: chosen, start_date: start, end_date: chosen === 'short' ? start : end || start }, leaves, quota, today) : null;
+  const check = start ? validateLeave({ leave_type: chosen, start_date: start, end_date: chosen === 'short' ? start : end || start }, leaves, quota, today, marked) : null;
 
   async function apply(e: React.FormEvent) {
     e.preventDefault();
