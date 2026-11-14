@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { useApp } from './AppContext';
+import { useApp, useAppOptional } from './AppContext';
 import { Icon } from './Icon';
 import { TopProgress } from './ui';
 import { initials } from '@/lib/format';
@@ -46,11 +46,17 @@ function useCollapsed(): [boolean, () => void] {
 }
 
 /** Sidebar + top bar shared by the HR app and the employee panel. */
-export function Frame({ nav, adminNav = [], panelName, search, bell, menu, banner, children }: {
-  nav: NavItem[]; adminNav?: NavItem[]; panelName: string; search?: React.ReactNode; banner?: React.ReactNode;
+export function Frame({ nav, adminNav = [], adminTitle = 'Admin', panelName, search, bell, menu, banner, brand, user, children }: {
+  nav: NavItem[]; adminNav?: NavItem[]; adminTitle?: string; panelName: string; search?: React.ReactNode; banner?: React.ReactNode;
   bell?: { count: number; href: string; label: string } | null; menu: React.ReactNode; children: React.ReactNode;
+  /** without an AppProvider (platform admin): what to show instead of the organization / login */
+  brand?: { name: string; logo: string | null }; user?: { name: string; sub: string };
 }) {
-  const { profile, settings } = useApp();
+  const app = useAppOptional();
+  const brandName = brand?.name ?? app?.settings.company_name ?? '';
+  const brandLogo = brand ? brand.logo : app?.settings.logo ?? null;
+  const userName = user?.name ?? app?.profile.full_name ?? '';
+  const userSub = user?.sub ?? (app ? ROLE_NAME[app.profile.role] ?? app.profile.role : '');
   const path = usePathname();
   const [collapsed, toggle] = useCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -81,15 +87,15 @@ export function Frame({ nav, adminNav = [], panelName, search, bell, menu, banne
       <TopProgress />
       <aside>
         <div className="brand">
-          <div className={`logo ${settings.logo ? 'has-img' : ''}`}>{settings.logo ? <img src={settings.logo} alt="" /> : initials(settings.company_name)}</div>
-          <div className="lbl"><b>{settings.company_name}</b><small>{panelName}</small></div>
+          <div className={`logo ${brandLogo ? 'has-img' : ''}`}>{brandLogo ? <img src={brandLogo} alt="" /> : initials(brandName)}</div>
+          <div className="lbl"><b>{brandName}</b><small>{panelName}</small></div>
           <button className="icon-btn collapse-btn" onClick={toggle} aria-label={collapsed ? 'Expand menu' : 'Collapse menu'}>
             <Icon name={collapsed ? 'expand' : 'collapse'} size={16} />
           </button>
         </div>
         <div className="nav-h">General</div>
         {nav.map(link)}
-        {adminNav.length > 0 && <div className="nav-h">Admin</div>}
+        {adminNav.length > 0 && <div className="nav-h">{adminTitle}</div>}
         {adminNav.map(link)}
       </aside>
       <div className="scrim" onClick={() => setMobileOpen(false)} />
@@ -106,8 +112,8 @@ export function Frame({ nav, adminNav = [], panelName, search, bell, menu, banne
           )}
           <div className="userchip-wrap" ref={menuRef}>
             <button className="userchip" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen}>
-              <span className="av">{initials(profile.full_name)}</span>
-              <span className="uc-txt"><b>{profile.full_name}</b><small>{ROLE_NAME[profile.role] ?? profile.role}</small></span>
+              <span className="av">{initials(userName)}</span>
+              <span className="uc-txt"><b>{userName}</b><small>{userSub}</small></span>
               <Icon name="chevronDown" size={16} />
             </button>
             {menuOpen && <div className="menu">{menu}</div>}

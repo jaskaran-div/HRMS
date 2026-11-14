@@ -69,6 +69,9 @@ export function AppProvider({ profile, settings, org, mailReady = false, driveRe
   );
 }
 
+/** Same context, or null outside an AppProvider (the platform admin panel uses Frame without one). */
+export const useAppOptional = (): AppCtx | null => useContext(Ctx);
+
 export function useApp(): AppCtx {
   const v = useContext(Ctx);
   if (!v) throw new Error('useApp outside AppProvider');

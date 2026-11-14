@@ -39,7 +39,7 @@ export default function NewOrganization() {
     <form onSubmit={submit}>
       {error && <div className="note bad" style={{ marginBottom: 12 }}>{error}</div>}
       <div className="card">
-        <h3>New organization</h3>
+        <h3>Organization</h3>
         <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
           <label>Organization name *<input value={f.org_name} onChange={set('org_name')} required /></label>
           <label>Phone<input value={f.phone} onChange={set('phone')} /></label>

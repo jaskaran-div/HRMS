@@ -110,7 +110,17 @@ export async function dashboard() {
   const byStatus = new Map<OrgStatus, number>();
   for (const o of all) byStatus.set(o.status, (byStatus.get(o.status) ?? 0) + 1);
   const soon = Date.now() + 7 * 86400_000;
+  // sign-ups per month, the last 6 months (oldest first)
+  const now = new Date();
+  const months = Array.from({ length: 6 }, (_, k) => {
+    const m = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5 + k, 1));
+    return m.toISOString().slice(0, 7);
+  });
+  const signups = months.map(m => [m, all.filter(o => o.created_at.slice(0, 7) === m).length] as [string, number]);
+  const largest = all.map(o => ({ id: o.id, name: o.name, employees: emps.get(o.id) ?? 0, users: users.get(o.id) ?? 0 }))
+    .sort((a, b) => b.employees - a.employees).slice(0, 6);
   return {
+    signups, largest,
     orgCount: all.length,
     byStatus: [...byStatus.entries()],
     exempt: all.filter(o => o.billing_exempt).length,
