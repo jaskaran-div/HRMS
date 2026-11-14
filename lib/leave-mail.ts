@@ -1,6 +1,7 @@
 // SERVER ONLY. Leave emails: the request goes to the team leader + HR; the decision goes back to the employee.
 import { supabaseAdmin } from './supabase/admin';
-import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from './mailer';
+import { isOfficial, mailConfigured, notOfficialMsg } from './mailer';
+import { orgMail } from './org-mail';
 import { escapeHtml, htmlToText, wrapEmail } from './email-templates';
 import { fmtDate } from './dates';
 import { leaveLabel, stageText, STATUS_LABEL } from './leave';
@@ -53,10 +54,10 @@ ${table([
 ${l.tl_status === 'pending'
     ? `<p>The team leader or HR can approve or decline it — whoever decides first settles it, and the other is informed. Team leader: <a href="${escapeHtml(origin)}/portal/approvals" style="color:#127a5f">Leave approvals</a>, HR: <a href="${escapeHtml(origin)}/leaves" style="color:#127a5f">Leave history</a>.</p>`
     : `<p>HR approves or declines it in the HR Portal: <a href="${escapeHtml(origin)}/leaves" style="color:#127a5f">Leave history</a>.</p>`}`;
-  const html = wrapEmail(body, s.company_name);
-  const { from, replyTo } = senderOf(s);
+  const html = wrapEmail(body, s);
+  const { from, replyTo, transport } = await orgMail(s);
   try {
-    await mailTransport().sendMail({
+    await transport.sendMail({
       from, to, replyTo: valid(e.email) && isOfficial(e.email, s) ? e.email!.trim() : replyTo,
       subject: `Leave request: ${e.name} — ${leaveLabel(l.leave_type)}, ${when(l)}`,
       html, text: htmlToText(html),
@@ -86,10 +87,10 @@ ${table([
     ...(l.tl_note ? [['Team leader note', l.tl_note] as [string, string]] : []),
     ...(l.hr_note ? [['HR note', l.hr_note] as [string, string]] : []),
   ])}`;
-  const html = wrapEmail(body, s.company_name);
-  const { from, replyTo } = senderOf(s);
+  const html = wrapEmail(body, s);
+  const { from, replyTo, transport } = await orgMail(s);
   try {
-    await mailTransport().sendMail({
+    await transport.sendMail({
       from, replyTo, to,
       subject: `Leave ${STATUS_LABEL[l.status].toLowerCase()}: ${leaveLabel(l.leave_type)}, ${when(l)}`, html, text: htmlToText(html),
     });
@@ -114,10 +115,10 @@ async function parties(l: LeaveRequest) {
 async function send(s: Settings, to: (string | null | undefined)[], subject: string, body: string, replyTo?: string | null) {
   const list = [...new Set(to.filter(valid).filter(x => isOfficial(x, s)).map(x => x!.trim().toLowerCase()))];
   if (!list.length) return;
-  const html = wrapEmail(body, s.company_name);
-  const sender = senderOf(s);
+  const html = wrapEmail(body, s);
+  const sender = await orgMail(s);
   try {
-    await mailTransport().sendMail({ from: sender.from, to: list, replyTo: valid(replyTo) && isOfficial(replyTo, s) ? replyTo!.trim() : sender.replyTo, subject, html, text: htmlToText(html) });
+    await sender.transport.sendMail({ from: sender.from, to: list, replyTo: valid(replyTo) && isOfficial(replyTo, s) ? replyTo!.trim() : sender.replyTo, subject, html, text: htmlToText(html) });
   } catch { /* best effort */ }
 }
 

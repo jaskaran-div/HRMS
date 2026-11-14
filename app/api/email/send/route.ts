@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { officialEmailOf } from '@/lib/official-email';
-import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from '@/lib/mailer';
+import { isOfficial, mailConfigured, notOfficialMsg } from '@/lib/mailer';
+import { orgMail } from '@/lib/org-mail';
 import {
   baseVars, DEFAULT_TEMPLATES, fillTemplate, htmlToText, TEMPLATE_TYPES, wrapEmail, type EmailTemplateType,
 } from '@/lib/email-templates';
@@ -43,9 +44,8 @@ export async function POST(req: Request) {
   if (!settings) return NextResponse.json({ error: 'Company settings are missing.' }, { status: 500 });
   const s = settings as Settings;
   const template = tpl ?? DEFAULT_TEMPLATES[type];
-  const { from, replyTo } = senderOf(s);
+  const { from, replyTo, transport } = await orgMail(s);
   const byId = new Map((emps ?? []).map(e => [e.id as string, e as { id: string; name: string; emp_code: string; email: string | null }]));
-  const transport = mailTransport();
 
   const results: { employee_id: string; ok: boolean; error?: string }[] = [];
   for (const it of items) {
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
 
     const vars = baseVars(s.company_name, emp);
     for (const k of OPTIONAL_VARS) if (typeof it.vars?.[k] === 'string') vars[k] = it.vars[k].slice(0, 200);
-    const html = wrapEmail(fillTemplate(template.body, vars, true), s.company_name);
+    const html = wrapEmail(fillTemplate(template.body, vars, true), s);
     try {
       await transport.sendMail({
         from, replyTo, to,

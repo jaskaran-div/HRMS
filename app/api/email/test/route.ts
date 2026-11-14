@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { mailConfigured, mailTransport, senderOf } from '@/lib/mailer';
+import { mailConfigured } from '@/lib/mailer';
+import { orgMail } from '@/lib/org-mail';
 import { fillTemplate, htmlToText, PLACEHOLDERS, wrapEmail } from '@/lib/email-templates';
 import { ADMIN_ROLES } from '@/lib/roles';
 import type { Settings } from '@/lib/types';
@@ -24,10 +25,10 @@ export async function POST(req: Request) {
   if (!settings) return NextResponse.json({ error: 'Company settings are missing.' }, { status: 500 });
   const s = settings as Settings;
   const vars = Object.fromEntries(PLACEHOLDERS.map(p => [p.key, p.key === 'CompanyName' ? s.company_name : p.sample]));
-  const html = wrapEmail(fillTemplate(body ?? '<p>This is a test email.</p>', vars, true), s.company_name);
-  const { from, replyTo } = senderOf(s);
+  const html = wrapEmail(fillTemplate(body ?? '<p>This is a test email.</p>', vars, true), s);
+  const { from, replyTo, transport } = await orgMail(s);
   try {
-    await mailTransport().sendMail({
+    await transport.sendMail({
       from, replyTo, to: to.trim(), subject: `[Test] ${fillTemplate(subject || 'Test email', vars, false)}`, html, text: htmlToText(html),
     });
   } catch (e) {

@@ -1,7 +1,8 @@
 // SERVER ONLY. Account and HR notification emails (login details, password changes, documents, team changes).
 // Every function is best effort: it never throws, and returns what happened so the UI can say "emailed to …".
 import { supabaseAdmin } from './supabase/admin';
-import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from './mailer';
+import { isOfficial, mailConfigured, notOfficialMsg } from './mailer';
+import { orgMail } from './org-mail';
 import { escapeHtml, htmlToText, wrapEmail } from './email-templates';
 import { hrAddress } from './leave-mail';
 import { officialEmailOf } from './official-email';
@@ -44,10 +45,10 @@ export async function sendNotice(orgId: string, to: (string | null | undefined)[
   const given = to.filter(validEmail);
   const list = [...new Set(given.filter(x => isOfficial(x, s)).map(x => x.trim().toLowerCase()))];
   if (!list.length) return { ok: false, error: given.length ? notOfficialMsg(s) : 'No email address on file.' };
-  const html = wrapEmail(bodyHtml + `<p style="color:#5b6070;font-size:13px">Regards,<br>HR, ${escapeHtml(s.company_name)}</p>`, s.company_name);
-  const sender = senderOf(s);
+  const html = wrapEmail(bodyHtml + `<p style="color:#5b6070;font-size:13px">Regards,<br>HR, ${escapeHtml(s.company_name)}</p>`, s);
+  const sender = await orgMail(s);
   try {
-    await mailTransport().sendMail({
+    await sender.transport.sendMail({
       from: sender.from, to: list, replyTo: validEmail(replyTo) ? replyTo.trim() : sender.replyTo ?? hrAddress(s) ?? undefined,
       subject, html, text: htmlToText(html),
     });
@@ -132,14 +133,14 @@ export async function emailCompanyDocument(orgId: string, title: string, categor
   const body = `<p><b>Hello,</b></p><p>HR has published a new company document on the HR Portal:</p>
 ${table([['Document', title], ...(category ? [['Category', category] as [string, string]] : [])])}
 ${btn(`${url}/portal/documents`, 'Read it in the HR Portal')}<p style="color:#5b6070;font-size:13px">Regards,<br>HR, ${escapeHtml(s.company_name)}</p>`;
-  const html = wrapEmail(body, s.company_name);
-  const sender = senderOf(s);
+  const html = wrapEmail(body, s);
+  const sender = await orgMail(s);
   const sent: string[] = [];
   let lastErr = '';
   for (let i = 0; i < list.length; i += 40) {
     const chunk = list.slice(i, i + 40);
     try {
-      await mailTransport().sendMail({ from: sender.from, to: sender.from, bcc: chunk, replyTo: sender.replyTo, subject: `New company document: ${title}`, html, text: htmlToText(html) });
+      await sender.transport.sendMail({ from: sender.from, to: sender.from, bcc: chunk, replyTo: sender.replyTo, subject: `New company document: ${title}`, html, text: htmlToText(html) });
       sent.push(...chunk);
     } catch (e) { lastErr = e instanceof Error ? e.message : String(e); }
   }

@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { officialEmailOf } from '@/lib/official-email';
-import { isOfficial, mailConfigured, mailTransport, notOfficialMsg, senderOf } from '@/lib/mailer';
+import { isOfficial, mailConfigured, notOfficialMsg } from '@/lib/mailer';
+import { orgMail } from '@/lib/org-mail';
 import { baseVars, fillTemplate, htmlToText, wrapEmail } from '@/lib/email-templates';
 import { EDIT_ROLES } from '@/lib/roles';
 import type { Settings } from '@/lib/types';
@@ -52,10 +53,10 @@ export async function POST(req: Request) {
   const s = settings as Settings;
   const vars = baseVars(s.company_name, emp as { name: string; emp_code: string });
   for (const k of OPTIONAL_VARS) vars[k] = typeof b.vars?.[k] === 'string' ? b.vars[k].slice(0, 200) : '';
-  const html = wrapEmail(fillTemplate(body, vars, true), s.company_name);
-  const { from, replyTo } = senderOf(s);
+  const html = wrapEmail(fillTemplate(body, vars, true), s);
+  const { from, replyTo, transport } = await orgMail(s);
   try {
-    await mailTransport().sendMail({ from, replyTo, to, subject: fillTemplate(subject, vars, false), html, text: htmlToText(html), attachments });
+    await transport.sendMail({ from, replyTo, to, subject: fillTemplate(subject, vars, false), html, text: htmlToText(html), attachments });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }

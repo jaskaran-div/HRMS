@@ -6,6 +6,10 @@ import { assignableRoles, canManageTarget } from '../lib/roles';
 import { BASE_FEATURES } from '../lib/billing/catalog';
 import { keyMode, stripeConfigProblems } from '../lib/stripe';
 import { hashToken, newToken, validTokenShape } from '../lib/tokens';
+import { open, seal } from '../lib/secret-box';
+import nodemailer from 'nodemailer';
+import { wrapEmail } from '../lib/email-templates';
+import { withLogo } from '../lib/org-mail';
 
 let passed = 0;
 const test = (name: string, fn: () => void) => {
@@ -100,4 +104,44 @@ test('email-link tokens: random, url-safe, only the hash is stored', () => {
   assert.notEqual(hashToken(a), a);
 });
 
-console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);
+test('organization mail passwords: encrypted, readable only with the key, tamper-proof', () => {
+  const save = process.env.MAIL_SECRET_KEY;
+  try {
+    process.env.MAIL_SECRET_KEY = 'k'.repeat(40);
+    const box = seal('app-password-123');
+    assert.ok(!box.includes('app-password-123'));
+    assert.notEqual(seal('app-password-123'), box); // random IV every time
+    assert.equal(open(box), 'app-password-123');
+    const parts = box.split('.');
+    parts[3] = (parts[3][0] === 'A' ? 'B' : 'A') + parts[3].slice(1);
+    assert.throws(() => open(parts.join('.')));
+    process.env.MAIL_SECRET_KEY = 'z'.repeat(40);
+    assert.throws(() => open(box)); // another key cannot read it
+    delete process.env.MAIL_SECRET_KEY;
+    assert.throws(() => seal('x'), /MAIL_SECRET_KEY/);
+  } finally {
+    if (save === undefined) delete process.env.MAIL_SECRET_KEY; else process.env.MAIL_SECRET_KEY = save;
+  }
+});
+
+// async: the logo check renders a real MIME message in memory
+(async () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  try {
+    const html = wrapEmail('<p>Hi</p>', { company_name: 'Acme', logo: PNG });
+    assert.match(html, /src="cid:company-logo"/);
+    assert.ok(!html.includes('base64'), 'no data URL in the email body (Gmail blocks those)');
+    assert.match(wrapEmail('<p>Hi</p>', { company_name: 'Acme', logo: PNG }, { inlineLogo: true }), /src="data:image\/png/);
+    assert.ok(!wrapEmail('<p>Hi</p>', { company_name: 'Acme', logo: null }).includes('<img'));
+    assert.ok(!wrapEmail('<p>Hi</p>', { company_name: 'Acme', logo: 'javascript:alert(1)' }).includes('<img'));
+    const t = withLogo(nodemailer.createTransport({ streamTransport: true, buffer: true }), PNG);
+    const info = (await t.sendMail({ from: 'a@acme.test', to: 'b@acme.test', subject: 's', html })) as { message: Buffer };
+    const raw = info.message.toString();
+    assert.match(raw, /Content-ID: <company-logo>/);
+    assert.match(raw, /Content-Type: image\/png/);
+    const plain = (await t.sendMail({ from: 'a@acme.test', to: 'b@acme.test', subject: 's', html: '<p>no logo here</p>' })) as { message: Buffer };
+    assert.ok(!plain.message.toString().includes('company-logo'), 'logo attached only when the email shows it');
+    passed++; console.log('  ok   emails show the organization logo from settings (inline image, Gmail-safe)');
+  } catch (e) { console.error('  FAIL emails show the organization logo', '\n', e); process.exitCode = 1; }
+  console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);
+})();
