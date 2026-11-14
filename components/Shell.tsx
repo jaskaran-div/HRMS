@@ -138,6 +138,7 @@ export function Frame({ nav, adminNav = [], adminTitle = 'Admin', panelName, sea
 export function MenuFoot() {
   return (
     <>
+      <Link href="/app" className="mi-row"><Icon name="download" size={16} /> Get the mobile app</Link>
       <Link href="/change-password" className="mi-row"><Icon name="lock" size={16} /> Change password</Link>
       <form action="/api/logout" method="post"><button className="mi-row danger"><Icon name="logout" size={16} /> Log out</button></form>
     </>
