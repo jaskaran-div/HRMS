@@ -36,6 +36,15 @@ ${btn(o.link, 'Verify my email')}
 <p style="color:#5b6070;font-size:13px">The link works once and expires in 24 hours. If you did not register, ignore this email.</p>`);
 }
 
+/** The platform admin created an organization for someone: their login details. */
+export function emailOwnerCreated(o: { to: string; name: string; orgName: string; password: string; url: string; pays: boolean }) {
+  return send(o.to, `Your ${o.orgName} account on ${platformName()}`, `<p><b>Hi ${escapeHtml(o.name)},</b></p>
+<p>An account for <b>${escapeHtml(o.orgName)}</b> has been created for you on ${escapeHtml(platformName())}. You are its owner.</p>
+<p>Email: <b>${escapeHtml(o.to)}</b><br>Password: <b>${escapeHtml(o.password)}</b></p>
+<p>${o.pays ? 'After logging in, choose your plan in Billing to activate it.' : 'Your organization is active: log in, set it up and invite your team.'} Change this password after your first login.</p>
+${btn(`${o.url}/login`, 'Log in')}`);
+}
+
 export function emailInvitation(o: { to: string; name: string; orgName: string; inviter: string; roleLabel: string; link: string; days: number }) {
   return send(o.to, `${o.inviter} invited you to ${o.orgName}`, `<p><b>Hi ${escapeHtml(o.name)},</b></p>
 <p>${escapeHtml(o.inviter)} has invited you to join <b>${escapeHtml(o.orgName)}</b> on ${escapeHtml(platformName())} as <b>${escapeHtml(o.roleLabel)}</b>.</p>

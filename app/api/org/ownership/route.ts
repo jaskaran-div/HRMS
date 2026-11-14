@@ -6,7 +6,6 @@ import { rateLimit } from '@/lib/rate-limit';
 import { hashToken, hoursFromNow, newToken, validTokenShape } from '@/lib/tokens';
 import { baseUrl, emailOwnershipDone, emailOwnershipOffer } from '@/lib/platform-mail';
 import { notifyUsers } from '@/lib/push';
-import { audit } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +18,7 @@ export async function GET() {
   const admin = supabaseAdmin();
   const [{ data: pending }, { data: members }] = await Promise.all([
     admin.from('ownership_transfers').select('id, to_user_id, expires_at, created_at').eq('org_id', g.org.id).eq('status', 'pending').maybeSingle(),
-    admin.from('memberships').select('user_id, role, profiles!inner(full_name, username, email, active)').eq('org_id', g.org.id).eq('status', 'active').in('role', CANDIDATE_ROLES),
+    admin.from('memberships').select('user_id, role, profiles!memberships_user_id_fkey!inner(full_name, username, email, active)').eq('org_id', g.org.id).eq('status', 'active').in('role', CANDIDATE_ROLES),
   ]);
   return NextResponse.json({
     pending: pending && new Date(pending.expires_at) > new Date() ? pending : null,
@@ -53,7 +52,6 @@ export async function POST(req: Request) {
     const to = prev?.email || prevUser.user?.email;
     if (to) await emailOwnershipDone({ to, name: prev?.full_name ?? '', orgName: g.org.name, newOwner: g.profile.full_name });
     await notifyUsers([t.from_user_id], { kind: 'ownership', title: 'Ownership transferred', body: `${g.profile.full_name} is now the owner of ${g.org.name}.` });
-    await audit({ orgId: g.org.id, actor: g.profile, action: 'ownership.transferred', target: { type: 'user', id: g.user.id, label: g.profile.full_name }, details: { from: t.from_user_id } });
     return NextResponse.json({ ok: true });
   }
 
@@ -61,9 +59,8 @@ export async function POST(req: Request) {
   if (!g.ok) return g.response;
 
   if (b.action === 'cancel') {
-    const { data } = await admin.from('ownership_transfers').update({ status: 'cancelled', decided_at: new Date().toISOString() })
-      .eq('org_id', g.org.id).eq('status', 'pending').select('id');
-    if (data?.length) await audit({ orgId: g.org.id, actor: g.profile, action: 'ownership.transfer_cancelled' });
+    await admin.from('ownership_transfers').update({ status: 'cancelled', decided_at: new Date().toISOString() })
+      .eq('org_id', g.org.id).eq('status', 'pending');
     return NextResponse.json({ ok: true });
   }
 
@@ -93,6 +90,5 @@ export async function POST(req: Request) {
   const link = `${baseUrl(req)}/ownership/accept?token=${token}`;
   const mail = email ? await emailOwnershipOffer({ to: email, name: target?.full_name ?? '', orgName: g.org.name, from: g.profile.full_name, link }) : { ok: false as const, error: 'No email address on this login.' };
   await notifyUsers([b.to_user_id], { kind: 'ownership', title: 'Ownership offered to you', body: `${g.profile.full_name} wants to make you the owner of ${g.org.name}. Accept it on the web.` });
-  await audit({ orgId: g.org.id, actor: g.profile, action: 'ownership.transfer_started', target: { type: 'user', id: b.to_user_id, label: target?.full_name }, details: { emailed: mail.ok } });
   return NextResponse.json({ ok: true, mail, ...(mail.ok ? {} : { link }) });
 }

@@ -5,7 +5,6 @@ import { addonPrices, basePriceId, stripe, stripeConfigProblems } from '@/lib/st
 import { ensureCustomer } from '@/lib/billing/sync';
 import { isFeature } from '@/lib/billing/catalog';
 import { baseUrl } from '@/lib/platform-mail';
-import { audit } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +43,6 @@ export async function POST(req: Request) {
       success_url: `${url}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${url}/billing?checkout=cancelled`,
     }, { idempotencyKey: `checkout-${key}` });
-    await audit({ orgId: org.id, actor: g.profile, action: 'billing.checkout_started', details: { addons: wanted, session: session.id } });
     return NextResponse.json({ url: session.url });
   } catch (e) {
     console.error('checkout failed', e);

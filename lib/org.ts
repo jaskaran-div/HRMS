@@ -31,6 +31,12 @@ export interface Org {
   last_payment_error: string | null;
   stripe_synced_at: string | null;
   entitlement_overrides: { grant?: string[]; revoke?: string[] };
+  /** plan limits set by the platform admin; null = unlimited */
+  max_employees: number | null;
+  max_users: number | null;
+  admin_notes: string | null;
+  phone: string | null;
+  country: string | null;
   created_at: string;
 }
 

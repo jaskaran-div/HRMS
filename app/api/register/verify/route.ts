@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { hashToken, validTokenShape } from '@/lib/tokens';
-import { audit } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +22,5 @@ export async function GET(req: Request) {
   const { error } = await admin.auth.admin.updateUserById(row.user_id, { email_confirm: true });
   if (error) return to('/verify-email?error=failed');
   await admin.from('organizations').update({ email_verified_at: new Date().toISOString() }).eq('id', row.org_id).is('email_verified_at', null);
-  await audit({ orgId: row.org_id, actor: { id: row.user_id }, action: 'org.email_verified' });
   return to('/login?verified=1');
 }

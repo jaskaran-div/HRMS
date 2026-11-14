@@ -3,7 +3,6 @@ import type Stripe from 'stripe';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { liveMode, stripe, stripeConfigured } from '@/lib/stripe';
 import { idOf, orgForStripe, recordInvoice, syncSubscription } from '@/lib/billing/sync';
-import { audit } from '@/lib/audit';
 import { emailPaymentFailed } from '@/lib/platform-mail';
 import type { Org } from '@/lib/org';
 
@@ -104,7 +103,6 @@ async function handle(event: Stripe.Event): Promise<{ orgId: string | null; hand
       if (subId && event.type !== 'invoice.finalized' && event.type !== 'invoice.updated') await syncSubscription(org, subId, 'Stripe invoice');
       if (event.type === 'invoice.paid') {
         await supabaseAdmin().from('organizations').update({ last_payment_error: null }).eq('id', org.id);
-        await audit({ orgId: org.id, actorName: 'Stripe', action: 'billing.payment_succeeded', target: { type: 'invoice', id: inv.id, label: inv.number }, details: { amount_paid: inv.amount_paid, currency: inv.currency, reason: inv.billing_reason } });
       }
       if (event.type === 'invoice.payment_failed' || event.type === 'invoice.payment_action_required') {
         const why = event.type === 'invoice.payment_action_required'
@@ -133,6 +131,5 @@ async function handle(event: Stripe.Event): Promise<{ orgId: string | null; hand
 
 async function paymentFailed(org: Org, why: string, inv?: Stripe.Invoice) {
   await supabaseAdmin().from('organizations').update({ last_payment_failed_at: new Date().toISOString(), last_payment_error: why.slice(0, 500) }).eq('id', org.id);
-  await audit({ orgId: org.id, actorName: 'Stripe', action: 'billing.payment_failed', target: { type: 'invoice', id: inv?.id ?? null, label: inv?.number ?? null }, details: { reason: why, attempt: inv?.attempt_count ?? null, next_attempt: inv?.next_payment_attempt ?? null } });
   await emailPaymentFailed(org, why, inv?.hosted_invoice_url ?? null);
 }

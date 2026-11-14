@@ -3,7 +3,6 @@ import { guard } from '@/lib/auth';
 import { addonPrices, stripe, stripeConfigured } from '@/lib/stripe';
 import { syncSubscription } from '@/lib/billing/sync';
 import { isFeature } from '@/lib/billing/catalog';
-import { audit } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +45,6 @@ export async function POST(req: Request) {
       pending = !!updated.pending_update;
     }
     await syncSubscription(org, sub.id, `${g.profile.full_name} (add-ons)`);
-    await audit({ orgId: org.id, actor: g.profile, action: 'billing.addons_changed', details: { added: add, removed: remove.map(i => priceToFeature.get(i.price.id)), payment_pending: pending } });
     return NextResponse.json({ ok: true, pending,
       message: pending ? 'The new add-ons start as soon as the payment is confirmed. Check Billing for an invoice that needs action.' : 'Add-ons updated.' });
   } catch (e) {

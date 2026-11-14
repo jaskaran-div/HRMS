@@ -5,7 +5,6 @@ import { assignableRoles, NEEDS_EMPLOYEE, ROLE_LABEL, USER_MANAGER_ROLES } from 
 import { EMAIL_RE } from '@/lib/registration';
 import { hashToken, hoursFromNow, newToken } from '@/lib/tokens';
 import { INVITE_DAYS, sendInvitation, type InvitationRow } from '@/lib/invitations';
-import { audit } from '@/lib/audit';
 import type { Role } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -45,6 +44,11 @@ export async function POST(req: Request) {
     const { data: other } = await admin.from('profiles').select('username').eq('employee_id', employeeId).maybeSingle();
     if (other) return NextResponse.json({ error: `${emp.name} already has a login (${other.username}).` }, { status: 409 });
   }
+  if (g.org.max_users != null) {
+    const { count } = await admin.from('memberships').select('id', { count: 'exact', head: true }).eq('org_id', g.org.id).eq('status', 'active');
+    if ((count ?? 0) >= g.org.max_users)
+      return NextResponse.json({ error: `Login limit reached: your plan allows ${g.org.max_users} active logins. Disable a login or ask for a higher limit.` }, { status: 409 });
+  }
   const { data: existing } = await admin.from('profiles').select('id').ilike('email', email).maybeSingle();
   if (existing) return NextResponse.json({ error: 'Someone already has an account with this email.' }, { status: 409 });
 
@@ -56,7 +60,6 @@ export async function POST(req: Request) {
   }).select('*').single();
   if (error || !inv) return NextResponse.json({ error: error?.message ?? 'Could not create the invitation.' }, { status: 500 });
   const mail = await sendInvitation(inv as InvitationRow, g.org.name, g.profile.full_name, req);
-  await audit({ orgId: g.org.id, actor: g.profile, action: 'invitation.sent', target: { type: 'invitation', id: inv.id, label: email }, details: { role, employee_id: employeeId, emailed: mail.ok } });
   return NextResponse.json({ invitation: inv, mail });
 }
 
@@ -73,12 +76,10 @@ export async function PATCH(req: Request) {
   if (inv.status === 'accepted') return NextResponse.json({ error: 'Already accepted.' }, { status: 409 });
   if (b.action === 'revoke') {
     await admin.from('invitations').update({ status: 'revoked' }).eq('id', inv.id);
-    await audit({ orgId: g.org.id, actor: g.profile, action: 'invitation.revoked', target: { type: 'invitation', id: inv.id, label: inv.email } });
     return NextResponse.json({ ok: true });
   }
   if (b.action === 'resend') {
     const mail = await sendInvitation(inv, g.org.name, g.profile.full_name, req);
-    await audit({ orgId: g.org.id, actor: g.profile, action: 'invitation.resent', target: { type: 'invitation', id: inv.id, label: inv.email } });
     return NextResponse.json({ ok: true, mail });
   }
   return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });

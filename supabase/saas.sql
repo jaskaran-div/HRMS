@@ -502,25 +502,65 @@ revoke all on function public.transfer_ownership(uuid) from public, anon, authen
 grant execute on function public.transfer_ownership(uuid) to service_role;
 
 ------------------------------------------------------------------------------
--- Organization audit log: role changes, invitations, deactivations, ownership, billing. Append only.
+-- No audit log (removed on request): drop it if an earlier run created it.
 ------------------------------------------------------------------------------
-create table if not exists public.org_audit_logs (
-  id uuid primary key default gen_random_uuid(),
-  org_id uuid not null references public.organizations (id) on delete cascade,
-  actor_id uuid references public.profiles (id) on delete set null,
-  actor_name text,
-  action text not null,
-  target_type text,
-  target_id text,
-  target_label text,
-  details jsonb not null default '{}'::jsonb,
-  ip text,
-  created_at timestamptz not null default now()
-);
-create index if not exists org_audit_logs_org_idx on public.org_audit_logs (org_id, created_at desc);
-alter table public.org_audit_logs enable row level security;
-drop policy if exists audit_read on public.org_audit_logs;
-create policy audit_read on public.org_audit_logs for select to authenticated using (org_id = public.current_org_id() and public.is_admin());
+drop table if exists public.org_audit_logs;
+
+------------------------------------------------------------------------------
+-- Plan limits, set by the platform admin (/admin). null = unlimited.
+--   max_employees: active (not archived) employee records
+--   max_users:     active logins (memberships)
+-- Enforced by the database, so the browser, imports and every API are covered.
+------------------------------------------------------------------------------
+alter table public.organizations add column if not exists max_employees int check (max_employees is null or max_employees >= 0);
+alter table public.organizations add column if not exists max_users int check (max_users is null or max_users >= 0);
+alter table public.organizations add column if not exists admin_notes text;
+
+create or replace function public.enforce_employee_limit() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare lim int; used int;
+begin
+  if new.archived_at is not null then return new; end if;
+  if tg_op = 'UPDATE' then
+    if old.archived_at is null then return new; end if;   -- was already counted
+  end if;
+  select max_employees into lim from public.organizations where id = new.org_id;
+  if lim is null then return new; end if;
+  perform pg_advisory_xact_lock(hashtext('emp_limit:' || new.org_id::text));
+  select count(*) into used from public.employees where org_id = new.org_id and archived_at is null and id <> new.id;
+  if used >= lim then
+    raise exception 'Employee limit reached: your plan allows % active employees. Archive someone or ask for a higher limit.', lim
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+drop trigger if exists employees_limit on public.employees;
+drop trigger if exists employees_zz_limit on public.employees;
+-- named zz_ so it runs after employees_org (same-event triggers fire alphabetically): org_id is set by then
+create trigger employees_zz_limit before insert or update of archived_at on public.employees
+  for each row execute function public.enforce_employee_limit();
+
+create or replace function public.enforce_user_limit() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare lim int; used int;
+begin
+  if new.status <> 'active' then return new; end if;
+  if tg_op = 'UPDATE' then
+    if old.status = 'active' then return new; end if;
+  end if;
+  select max_users into lim from public.organizations where id = new.org_id;
+  if lim is null then return new; end if;
+  perform pg_advisory_xact_lock(hashtext('user_limit:' || new.org_id::text));
+  select count(*) into used from public.memberships where org_id = new.org_id and status = 'active' and id <> new.id;
+  if used >= lim then
+    raise exception 'Login limit reached: your plan allows % active logins. Disable a login or ask for a higher limit.', lim
+      using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+drop trigger if exists memberships_limit on public.memberships;
+create trigger memberships_limit before insert or update of status on public.memberships
+  for each row execute function public.enforce_user_limit();
 
 ------------------------------------------------------------------------------
 -- Stripe: webhook events (idempotency + history) and invoices (payment history). Server only.

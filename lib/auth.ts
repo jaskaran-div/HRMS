@@ -68,7 +68,7 @@ export async function platformGuard(): Promise<{ ok: true; user: { id: string; e
   return { ok: true, user };
 }
 
-/** Client IP for the audit log (behind nginx on EC2). */
+/** Client IP (behind nginx on EC2), for rate limits. */
 export async function clientIp(): Promise<string | null> {
   const h = await headers();
   return (h.get('x-forwarded-for')?.split(',')[0] ?? h.get('x-real-ip') ?? '').trim() || null;

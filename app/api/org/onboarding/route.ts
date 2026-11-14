@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { guard } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { audit } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +31,5 @@ export async function POST(req: Request) {
   }).eq('org_id', g.org.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   await admin.from('organizations').update({ name: company, onboarded_at: g.org.onboarded_at ?? new Date().toISOString() }).eq('id', g.org.id);
-  await audit({ orgId: g.org.id, actor: g.profile, action: 'org.onboarded', details: { company } });
   return NextResponse.json({ ok: true });
 }

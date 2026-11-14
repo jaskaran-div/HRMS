@@ -1,40 +1,85 @@
 import Link from 'next/link';
-import { listOrgs } from '@/lib/platform';
-import { STATUS_LABEL } from '@/lib/org';
-import { FEATURE_LABEL, isFeature } from '@/lib/billing/catalog';
+import { dashboard } from '@/lib/platform';
+import { STATUS_LABEL, type OrgStatus } from '@/lib/org';
 import { fmtDate } from '@/lib/dates';
+import { money } from '@/lib/money';
 
 export const dynamic = 'force-dynamic';
 
-const d = (iso: string | null) => (iso ? fmtDate(iso.slice(0, 10)) : '—');
+const d = (iso: string | null | undefined) => (iso ? fmtDate(iso.slice(0, 10)) : '—');
+const tone = (s: OrgStatus) => (s === 'active' ? 'ok' : s === 'past_due' || s === 'pending_payment' ? 'warn' : 'bad');
 
-export default async function AdminHome() {
-  const orgs = await listOrgs();
+export default async function AdminDashboard() {
+  const x = await dashboard();
+  const st = new Map(x.byStatus);
   return (
-    <div className="card">
-      <h3>Organizations ({orgs.length})</h3>
-      <div className="tbl-wrap">
-        <table>
-          <thead><tr><th>Organization</th><th>Status</th><th>Stripe customer</th><th>Subscription</th><th>Base plan</th><th>Add-ons</th><th>Period ends</th><th>Failed</th><th>Members</th></tr></thead>
-          <tbody>
-            {orgs.map(o => (
+    <>
+      <div className="kpis">
+        <div className="kpi"><div><small>Organizations</small><b>{x.orgCount}</b><small>{x.newThisMonth} new in the last 30 days</small></div></div>
+        <div className="kpi"><div><small>Active</small><b>{st.get('active') ?? 0}</b><small>{x.exempt} on a free / managed plan</small></div></div>
+        <div className="kpi"><div><small>Awaiting payment</small><b>{st.get('pending_payment') ?? 0}</b><small>{st.get('past_due') ?? 0} overdue</small></div></div>
+        <div className="kpi"><div><small>Employees (all orgs)</small><b>{x.employees}</b><small>{x.users} active logins</small></div></div>
+        <div className="kpi"><div><small>Revenue, last 30 days</small><b>{x.revenue30.length ? x.revenue30.map(([c, a]) => money(a, c)).join(' + ') : '—'}</b><small>paid invoices</small></div></div>
+        <div className="kpi"><div><small>Failed payments</small><b>{x.failed.length}</b><small>open invoices with a failed attempt</small></div></div>
+      </div>
+
+      <div className="admin-grid">
+        <div className="card">
+          <div className="card-h"><h3>Newest organizations</h3><span className="sp" /><Link href="/admin/organizations">All</Link></div>
+          <div className="tbl-wrap"><table><tbody>
+            {x.recentOrgs.map(o => (
               <tr key={o.id}>
-                <td><Link href={`/admin/orgs/${o.id}`}><b>{o.name}</b></Link><div className="muted small">{o.slug} · {d(o.created_at)}</div></td>
-                <td><span className={`pill ${o.status === 'active' ? 'ok' : o.status === 'past_due' || o.status === 'pending_payment' ? 'warn' : 'bad'}`}>{STATUS_LABEL[o.status]}</span>
-                  {o.billing_exempt && <div className="muted small">exempt</div>}
-                  {o.cancel_at_period_end && <div className="muted small">cancels at period end</div>}</td>
-                <td className="small"><code>{o.stripe_customer_id ?? '—'}</code></td>
-                <td className="small"><code>{o.stripe_subscription_id ?? '—'}</code><div className="muted">{o.stripe_subscription_status ?? ''}</div></td>
-                <td className="small"><code>{o.stripe_base_price_id ?? '—'}</code></td>
-                <td className="small">{(o.addons ?? []).filter(isFeature).map(f => FEATURE_LABEL[f]).join(', ') || '—'}</td>
-                <td>{d(o.current_period_end)}</td>
-                <td>{o.failed_invoices || o.last_payment_failed_at ? <span className="pill bad">{o.failed_invoices || '!'}</span> : '—'}</td>
-                <td>{o.members}</td>
+                <td><Link href={`/admin/organizations/${o.id}`}><b>{o.name}</b></Link><div className="muted small">{o.owner_email ?? o.slug}</div></td>
+                <td><span className={`pill ${tone(o.status)}`}>{STATUS_LABEL[o.status]}</span>{o.billing_exempt && <div className="muted small">free / managed</div>}</td>
+                <td className="small muted">{d(o.created_at)}</td>
               </tr>
             ))}
-          </tbody>
-        </table>
+            {!x.recentOrgs.length && <tr><td className="muted">No organizations yet.</td></tr>}
+          </tbody></table></div>
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Organizations by status</h3></div>
+          <div className="tbl-wrap"><table><tbody>
+            {(Object.keys(STATUS_LABEL) as OrgStatus[]).map(s => (
+              <tr key={s}><td><Link href={`/admin/organizations?status=${s}`}>{STATUS_LABEL[s]}</Link></td><td style={{ textAlign: 'right' }}><b>{st.get(s) ?? 0}</b></td></tr>
+            ))}
+          </tbody></table></div>
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Failed payments</h3><span className="sp" /><Link href="/admin/payments?status=failed">All</Link></div>
+          <div className="tbl-wrap"><table><tbody>
+            {x.failed.map(f => (
+              <tr key={f.id}>
+                <td><Link href={`/admin/organizations/${f.org_id}`}>{f.org_name}</Link><div className="err small">{f.last_error ?? 'Payment failed'}</div></td>
+                <td>{money(f.amount_due, f.currency)}<div className="muted small">{f.attempt_count} attempt(s)</div></td>
+              </tr>
+            ))}
+            {!x.failed.length && <tr><td className="muted">No failed payments.</td></tr>}
+          </tbody></table></div>
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Latest payments</h3><span className="sp" /><Link href="/admin/payments">All</Link></div>
+          <div className="tbl-wrap"><table><tbody>
+            {x.recentPaid.map(p => (
+              <tr key={p.id}><td><Link href={`/admin/organizations/${p.org_id}`}>{p.org_name}</Link><div className="muted small">{p.number}</div></td><td>{money(p.amount_paid, p.currency)}</td><td className="small muted">{d(p.paid_at)}</td></tr>
+            ))}
+            {!x.recentPaid.length && <tr><td className="muted">No payments yet.</td></tr>}
+          </tbody></table></div>
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Renewing in the next 7 days</h3></div>
+          <div className="tbl-wrap"><table><tbody>
+            {x.renewingSoon.map(o => (
+              <tr key={o.id}><td><Link href={`/admin/organizations/${o.id}`}>{o.name}</Link></td><td className="small">{o.cancel_at_period_end ? 'ends' : 'renews'} {d(o.current_period_end)}</td></tr>
+            ))}
+            {!x.renewingSoon.length && <tr><td className="muted">Nothing this week.</td></tr>}
+          </tbody></table></div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

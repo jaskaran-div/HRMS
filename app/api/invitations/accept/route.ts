@@ -6,7 +6,6 @@ import { validTokenShape } from '@/lib/tokens';
 import { invitationByToken } from '@/lib/invitations';
 import { freeUsername } from '@/lib/registration';
 import { ROLE_LABEL } from '@/lib/roles';
-import { audit } from '@/lib/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,9 +57,9 @@ export async function POST(req: Request) {
   if (pErr || mErr) {
     await admin.auth.admin.deleteUser(userId);
     await undo();
-    return NextResponse.json({ error: 'Could not finish creating your account. Please try again.' }, { status: 500 });
+    const limit = /limit reached/i.test(mErr?.message ?? '');
+    return NextResponse.json({ error: limit ? 'This organization has reached its login limit. Ask them to free a login or raise the limit.' : 'Could not finish creating your account. Please try again.' }, { status: limit ? 409 : 500 });
   }
   await admin.from('invitations').update({ accepted_user_id: userId }).eq('id', inv.id);
-  await audit({ orgId: inv.org_id, actor: { id: userId, full_name: inv.full_name }, action: 'invitation.accepted', target: { type: 'user', id: userId, label: inv.email }, details: { role: inv.role } });
   return NextResponse.json({ ok: true, email: inv.email, username });
 }

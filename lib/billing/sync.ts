@@ -5,7 +5,6 @@ import type Stripe from 'stripe';
 import { supabaseAdmin } from '../supabase/admin';
 import { basePriceId, featureOfPrice, liveMode, stripe } from '../stripe';
 import { statusFromStripe, type Org } from '../org';
-import { audit } from '../audit';
 
 const TERMINAL = new Set(['canceled', 'incomplete_expired']);
 const ts = (s: number | null | undefined) => (s ? new Date(s * 1000).toISOString() : null);
@@ -74,13 +73,6 @@ export async function syncSubscription(org: Org, subscriptionId: string, source:
   const { error } = await supabaseAdmin().from('organizations').update(patch).eq('id', org.id);
   if (error) throw new Error(`could not save subscription: ${error.message}`);
 
-  const changed = org.status !== status || org.stripe_subscription_status !== sub.status
-    || JSON.stringify([...(org.addons ?? [])].sort()) !== JSON.stringify([...patch.addons].sort())
-    || org.cancel_at_period_end !== sub.cancel_at_period_end;
-  if (changed) await audit({
-    orgId: org.id, actorName: source, action: 'billing.subscription_changed', target: { type: 'subscription', id: sub.id },
-    details: { from: org.status, to: status, stripe_status: sub.status, addons: patch.addons, cancel_at_period_end: sub.cancel_at_period_end },
-  });
   return status;
 }
 

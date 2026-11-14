@@ -29,7 +29,6 @@ const ADMIN_NAV: AdminItem[] = [
   { href: '/settings', icon: 'building', label: 'Company & Rules', sub: 'Company details, logo, pay and leave rules.', who: 'admin' },
   { href: '/customisations', icon: 'mail', label: 'Customisations', sub: 'Email templates and the sender address.', who: 'admin' },
   { href: '/users', icon: 'key', label: 'User Access', sub: 'Invite people, manage logins and roles.', who: 'users' },
-  { href: '/audit', icon: 'clock', label: 'Audit log', sub: 'Role changes, invitations, deactivations, ownership and billing events.', who: 'admin' },
   { href: '/organization', icon: 'network', label: 'Organization', sub: 'Ownership and organization details.', who: 'admin' },
   { href: '/billing', icon: 'receipt', label: 'Billing', sub: 'Subscription, add-ons, invoices and payment history.', who: 'billing' },
 ];

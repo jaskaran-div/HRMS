@@ -4,7 +4,6 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { cleanUsername, defaultPassword, toEmail } from '@/lib/username';
 import { accountAddress, appUrl, emailAccountStatus, emailLoginDetails, validEmail, type MailResult } from '@/lib/notify-mail';
 import { assignableRoles, canManageTarget, NEEDS_EMPLOYEE, ROLE_LABEL, USER_MANAGER_ROLES } from '@/lib/roles';
-import { audit } from '@/lib/audit';
 import type { Profile, Role } from '@/lib/types';
 
 /** Checks the employee exists in this organization and has no other login. Returns an error message or null. */
@@ -77,7 +76,6 @@ export async function POST(req: Request) {
     await admin.auth.admin.deleteUser(created.user.id);
     return NextResponse.json({ error: (pErr ?? mErr)!.message }, { status: 400 });
   }
-  await audit({ orgId, actor: g.profile, action: 'user.created', target: { type: 'user', id: created.user.id, label: username }, details: { role, employee_id } });
   let mail: MailResult | null = null;
   if (body.send_email !== false) {
     const to = await accountAddress({ email, employee_id });
@@ -106,8 +104,6 @@ export async function PATCH(req: Request) {
   if (!self && !canManageTarget(g.profile.role, target.role as Role))
     return NextResponse.json({ error: target.role === 'owner' ? 'The owner’s login can only be changed by the owner (ownership can be transferred in Settings).' : 'You cannot manage this login.' }, { status: 403 });
   const url = appUrl(req);
-  const log = (action: Parameters<typeof audit>[0]['action'], details?: Record<string, unknown>) =>
-    audit({ orgId, actor: g.profile, action, target: { type: 'user', id, label: target.username }, details });
   /** Emails the new password to the person (unless HR unticked it, or it is your own). */
   const mailPassword = async (pw: string, must: boolean): Promise<MailResult | null> => {
     if (send_email === false || self) return null;
@@ -123,7 +119,6 @@ export async function PATCH(req: Request) {
       const { error } = await admin.auth.admin.updateUserById(id, { password });
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
       await admin.from('profiles').update({ must_change_password: true }).eq('id', id);
-      await log('user.password_reset');
       return NextResponse.json({ username: target.username, password, mail: await mailPassword(password, true) });
     }
     case 'set_password': {
@@ -134,7 +129,6 @@ export async function PATCH(req: Request) {
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
       const must = self ? false : must_change_password !== false;
       await admin.from('profiles').update({ must_change_password: must }).eq('id', id);
-      await log('user.password_set');
       return NextResponse.json({ username: target.username, password: pw, mail: await mailPassword(pw, must) });
     }
     case 'set_employee': {
@@ -145,14 +139,12 @@ export async function PATCH(req: Request) {
         if (bad) return NextResponse.json({ error: bad }, { status: 409 });
       }
       await admin.from('profiles').update({ employee_id: emp }).eq('id', id);
-      await log('user.employee_linked', { employee_id: emp });
       return NextResponse.json({ ok: true });
     }
     case 'set_email': {
       const e = (email ?? '').trim() || null;
       if (e && !validEmail(e)) return NextResponse.json({ error: 'That email address does not look right.' }, { status: 400 });
       await admin.from('profiles').update({ email: e }).eq('id', id);
-      await log('user.email_changed');
       return NextResponse.json({ ok: true });
     }
     case 'delete': {
@@ -162,7 +154,6 @@ export async function PATCH(req: Request) {
         const { count } = await admin.from('memberships').select('id', { count: 'exact', head: true }).eq('org_id', orgId).in('role', ['admin', 'owner']).eq('status', 'active');
         if ((count ?? 0) <= 1) return NextResponse.json({ error: 'This is the last admin login. Make someone else admin first.' }, { status: 400 });
       }
-      await log('user.deleted', { role: target.role });
       const { error } = await admin.auth.admin.deleteUser(id);
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
       await admin.from('profiles').delete().eq('id', id); // normally removed by the cascade already
@@ -174,14 +165,12 @@ export async function PATCH(req: Request) {
       await admin.from('profiles').update({ active: false }).eq('id', id);
       await admin.from('memberships').update({ status: 'deactivated' }).eq('user_id', id).eq('org_id', orgId);
       await admin.from('push_tokens').delete().eq('user_id', id);
-      await log('user.deactivated');
       return NextResponse.json({ ok: true, mail: await emailAccountStatus(target as Profile, false, url) });
     }
     case 'activate': {
       await admin.auth.admin.updateUserById(id, { ban_duration: 'none' });
       await admin.from('profiles').update({ active: true }).eq('id', id);
       await admin.from('memberships').update({ status: 'active' }).eq('user_id', id).eq('org_id', orgId);
-      await log('user.activated');
       return NextResponse.json({ ok: true, mail: await emailAccountStatus(target as Profile, true, url) });
     }
     case 'set_role': {
@@ -192,7 +181,6 @@ export async function PATCH(req: Request) {
       // memberships is the source of truth; a trigger mirrors the role onto profiles
       const { error } = await admin.from('memberships').update({ role }).eq('user_id', id).eq('org_id', orgId);
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      await log('user.role_changed', { from: target.role, to: role });
       return NextResponse.json({ ok: true });
     }
     default:

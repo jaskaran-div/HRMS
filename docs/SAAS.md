@@ -25,8 +25,7 @@
 
 Chain for a new organization: registrant = Owner → Owner makes HR Admins → HR Admins invite team leaders and
 employees. Nobody can grant Owner (only an ownership transfer), and platform super admin is not an organization
-role at all (`scripts/make-platform-admin.mjs` on the server is the only way). Every role change, invitation,
-deactivation, ownership transfer and billing event is written to the organization's **Audit log**.
+role at all (`scripts/make-platform-admin.mjs` on the server is the only way). There is no audit log.
 
 ## One-time setup
 
@@ -87,14 +86,28 @@ Local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook` pr
 Add-ons on an existing subscription: added ones are charged immediately (prorated) with
 `payment_behavior=pending_if_incomplete`, so **they switch on only if that payment succeeds**; removed ones stop at
 once and are credited on the next invoice. Cancellation, card changes and resuming happen in the Stripe portal and
-arrive through webhooks. Payment failures email the owner and are logged.
+arrive through webhooks. Payment failures email the owner.
 
 ### Platform admin (`/admin`)
 
-Lists every organization with Stripe customer / subscription ids, status, base plan, add-ons, billing period,
-next renewal, cancellation, failed payments and members. Per organization: payment history, webhook event log,
-billing log, and controlled actions — **Sync from Stripe**, **entitlement overrides** (grant / revoke a feature),
-**billing exempt** (managed / offline-invoiced plans) and **suspend / unsuspend**. Every action is audited.
+Open it by logging in normally, then going to `/admin` (platform admins only; everyone else gets "not found").
+
+* **Dashboard** — organizations by status, new sign-ups, employees and logins across all organizations,
+  revenue of the last 30 days, failed payments, latest payments, renewals in the next 7 days.
+* **Organizations** — search / filter, employees and logins used vs. their limits, plan, renewal, failed payments.
+  Per organization:
+  * *Overview* — edit name, company name / address, contact, internal notes; mark the owner's email verified.
+  * *Plan & features* — billing **Free / managed** (active without payment) or **Stripe** (access follows
+    payment); each feature **Plan / On / Off**; **max employees** and **max logins** (blank = unlimited).
+    Limits are enforced by the database: adding, importing or re-activating past the limit is refused.
+  * *Members* — change roles, disable / enable logins, make someone the owner.
+  * *Payments* — total paid, failures, next renewal, Stripe ids, cancellation, all invoices, Stripe events,
+    **Sync from Stripe**.
+  * *Suspend / delete* — suspend with a reason (everyone locked out, nothing deleted), or delete the
+    organization for good (type its short name; cancels an active Stripe subscription first).
+* **New organization** — creates the organization and its owner login (email + password, generated if blank,
+  optionally emailed), with plan, features and limits.
+* **Payments** — every organization's invoices, filter by status / organization / period, totals.
 No card details are stored anywhere; Stripe holds them.
 
 ## Not done yet / decisions for later

@@ -4,7 +4,7 @@ import type { Role } from './types';
 
 /** HR operations: employees, attendance, payroll, leave decisions, documents. */
 export const EDIT_ROLES: Role[] = ['owner', 'admin', 'hr_admin', 'editor'];
-/** Organization administration: company settings, templates, deleting records, audit log. */
+/** Organization administration: company settings, templates, deleting records. */
 export const ADMIN_ROLES: Role[] = ['owner', 'admin'];
 /** May invite / create / manage logins (each only within assignableRoles). */
 export const USER_MANAGER_ROLES: Role[] = ['owner', 'admin', 'hr_admin'];

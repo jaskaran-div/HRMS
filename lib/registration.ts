@@ -30,6 +30,65 @@ export async function freeSlug(name: string): Promise<string> {
   return `org-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+export interface NewOrg {
+  orgName: string; fullName: string; email: string; password: string;
+  phone?: string | null; country?: string | null; employees?: number | null;
+  /** registration: false (owner must verify); platform admin: true */
+  emailVerified: boolean;
+  status?: 'pending_payment' | 'active';
+  billingExempt?: boolean;
+  maxEmployees?: number | null; maxUsers?: number | null;
+  overrides?: { grant?: string[]; revoke?: string[] };
+}
+
+/**
+ * Creates login + organization + owner profile + OWNER membership + settings row, all or nothing.
+ * Returns the new ids, or an error message (`taken` = the email already has a login).
+ */
+export async function createOrganization(o: NewOrg): Promise<{ ok: true; orgId: string; userId: string; username: string } | { ok: false; error: string; taken?: boolean }> {
+  const admin = supabaseAdmin();
+  const email = o.email.trim().toLowerCase();
+  const { data: created, error: uErr } = await admin.auth.admin.createUser({
+    email, password: o.password, email_confirm: o.emailVerified, user_metadata: { full_name: o.fullName },
+  });
+  if (uErr || !created.user) {
+    const taken = /already|registered|exists/i.test(uErr?.message ?? '');
+    return { ok: false, taken, error: taken ? 'An account with this email already exists.' : (uErr?.message ?? 'Could not create the login.') };
+  }
+  const userId = created.user.id;
+  let orgId: string | null = null;
+  try {
+    const { data: org, error: oErr } = await admin.from('organizations').insert({
+      name: o.orgName, slug: await freeSlug(o.orgName), status: o.status ?? 'pending_payment', owner_user_id: userId, owner_email: email,
+      phone: o.phone ?? null, country: o.country ?? null, employee_count_hint: o.employees ?? null,
+      email_verified_at: o.emailVerified ? new Date().toISOString() : null, billing_exempt: !!o.billingExempt,
+      max_employees: o.maxEmployees ?? null, max_users: o.maxUsers ?? null, entitlement_overrides: o.overrides ?? {},
+    }).select('id').single();
+    if (oErr || !org) throw new Error(oErr?.message ?? 'organization');
+    orgId = org.id as string;
+    const username = await freeUsername(email);
+    const { error: pErr } = await admin.from('profiles').insert({
+      id: userId, org_id: orgId, username, full_name: o.fullName, role: 'owner', email, must_change_password: false,
+    });
+    if (pErr) throw new Error(pErr.message);
+    const { error: mErr } = await admin.from('memberships').insert({ org_id: orgId, user_id: userId, role: 'owner' });
+    if (mErr) throw new Error(mErr.message);
+    const { error: sErr } = await admin.from('settings').insert({
+      org_id: orgId, company_name: o.orgName, company_address: '', footer_note: '-- This is a system-generated document. --',
+      sender_name: o.orgName, sender_email: process.env.PLATFORM_SENDER_EMAIL || process.env.SMTP_USER || email,
+      reply_to: email, hr_email: email, email_domains: email.split('@')[1],
+    });
+    if (sErr) throw new Error(sErr.message);
+    return { ok: true, orgId, userId, username };
+  } catch (e) {
+    // undo everything: the organization (cascades to profile, membership, settings) and the login
+    if (orgId) await admin.from('organizations').delete().eq('id', orgId);
+    await admin.auth.admin.deleteUser(userId);
+    console.error('create organization failed', e);
+    return { ok: false, error: 'Could not create the organization. Please try again.' };
+  }
+}
+
 /** Creates a fresh verification link for the owner and emails it. Old unused links stop working. */
 export async function sendOwnerVerification(o: { userId: string; orgId: string; email: string; name: string; orgName: string; req?: Request }) {
   const admin = supabaseAdmin();
