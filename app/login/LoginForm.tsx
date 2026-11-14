@@ -89,7 +89,6 @@ export function LoginForm({ company, logo, notice }: { company: string; logo: st
           </label>
           <button className="btn primary" disabled={busy}>{busy ? <><Spinner size={16} /> Logging in…</> : 'Log in'}</button>
           <p className="login-foot">Forgot your password? Ask HR to set a new one.</p>
-          <p className="login-foot"><a href="/app">📱 Get the mobile app</a></p>
           <p className="login-foot">New organization? <a href="/register">Register</a> · <a href="/contact-sales">Contact Sales</a></p>
         </form>
       </div>

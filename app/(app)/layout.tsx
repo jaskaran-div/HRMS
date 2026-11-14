@@ -7,6 +7,8 @@ import { driveConfigured } from '@/lib/drive';
 import { requireAccess, webSession } from '@/lib/web-session';
 import { summarize } from '@/lib/org';
 import { isStaff, type Settings } from '@/lib/types';
+import { AppDownloadFab } from '@/components/AppDownloadFab';
+import { androidApp } from '@/lib/mobile-app';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,10 +25,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const supabase = await supabaseServer();
   const { data: settings } = await supabase.from('settings').select('*').eq('org_id', org.id).single();
   if (!settings) throw new Error('Settings row missing. Did you run supabase/saas.sql?');
+  const app = await androidApp();
 
   return (
     <AppProvider profile={profile} settings={settings as Settings} org={summarize(org)} mailReady={mailConfigured()} driveReady={driveConfigured()}>
       <Shell>{children}</Shell>
+      {app.available && <AppDownloadFab store={app.kind === 'store'} />}
     </AppProvider>
   );
 }

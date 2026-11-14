@@ -1,5 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { LoginForm } from './LoginForm';
+import { AppDownloadFab } from '@/components/AppDownloadFab';
+import { androidApp } from '@/lib/mobile-app';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,5 +23,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     if (data) brand = { name: data.company_name || brand.name, logo: data.logo ?? null };
   } catch { /* the form still works without branding */ }
   const notice = sp.verified ? 'Email verified. Log in to continue.' : sp.invited ? 'Your account is ready. Log in with your email and new password.' : null;
-  return <LoginForm company={brand.name} logo={brand.logo} notice={notice} />;
+  const app = await androidApp();
+  return <>
+    <LoginForm company={brand.name} logo={brand.logo} notice={notice} />
+    {app.available && <AppDownloadFab store={app.kind === 'store'} />}
+  </>;
 }

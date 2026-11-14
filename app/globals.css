@@ -492,3 +492,8 @@ aside:hover::-webkit-scrollbar-thumb{background-color:#dde3ed}
 .meter{height:6px;border-radius:99px;background:var(--canvas);overflow:hidden;margin-top:6px}
 .meter i{display:block;height:100%;background:var(--brand)}
 .meter i.full{background:var(--bad)}
+/* "Get the app" button, bottom-right on every page */
+.app-fab{position:fixed;right:18px;bottom:18px;z-index:50;display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;background:var(--brand);color:#fff;font-weight:600;font-size:13.5px;text-decoration:none;box-shadow:0 8px 22px rgba(29,111,242,.35);transition:transform .15s,box-shadow .15s}
+.app-fab:hover{transform:translateY(-2px);box-shadow:0 12px 26px rgba(29,111,242,.42);color:#fff}
+@media (max-width:640px){.app-fab{right:14px;bottom:14px;padding:12px}.app-fab span{display:none}}
+@media print{.app-fab{display:none}}

@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 const MOBILE_API = /^\/api\/(mobile\/|leave$|change-password$)/;
 
 /** Pages and APIs anyone may open without logging in (each public API checks its own input / rate limit). */
-const PUBLIC = /^\/(login|register|verify-email|invite|contact-sales|app)(\/|$)|^\/api\/(logout|register(\/.*)?|invitations\/accept|contact-sales|app\/android)$/;
+const PUBLIC = /^\/(login|register|verify-email|invite|contact-sales)(\/|$)|^\/api\/(logout|register(\/.*)?|invitations\/accept|contact-sales|app\/android)$/;
 
 /** Keeps the Supabase session fresh and sends logged-out visitors to /login. */
 export async function middleware(req: NextRequest) {

@@ -6,6 +6,8 @@ import { myTeam, portalSession } from '@/lib/portal';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { isStaff } from '@/lib/types';
 import { summarize } from '@/lib/org';
+import { AppDownloadFab } from '@/components/AppDownloadFab';
+import { androidApp } from '@/lib/mobile-app';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,8 +23,10 @@ export default async function PortalLayout({ children }: { children: React.React
       pending = count ?? 0;
     }
   }
+  const app = await androidApp();
   return (
     <AppProvider profile={s.profile} settings={s.settings} org={summarize(s.org)}>
+      {app.available && <AppDownloadFab store={app.kind === 'store'} />}
       <PortalShell isLead={s.isLead} isStaff={isStaff(s.profile.role)} pending={pending} name={s.me?.name ?? s.profile.full_name}>
         {s.me ? children : (
           <div className="card"><Empty icon="lock" title="Your login is not linked to an employee yet">Ask HR to link it under User Access.</Empty></div>
