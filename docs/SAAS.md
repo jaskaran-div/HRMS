@@ -118,15 +118,10 @@ No card details are stored anywhere; Stripe holds them.
 * The mobile app still has the HR "Company & Rules" screen (office location, leave rules) for org admins.
 * Rate limits are in memory (fine for one pm2 process; use a shared store if you scale out).
 
-## Emails: each organization's own address and logo
+## Emails: sender and logo
 
-* **Sender:** an organization can connect its own mailbox under *Customisations → Sender Email Preferences →
-  Your mail server* (Gmail / Google Workspace, Outlook / Microsoft 365, Zoho or any SMTP server). The login is
-  tested before it is saved; the password is stored encrypted (`MAIL_SECRET_KEY`) in a table the browser cannot read.
-  From then on every email of that organization — payslips, leave, login details, documents, team changes —
-  goes out through **its own account, from its own address**, and replies land in its own inbox.
-  Without one, emails use the platform SMTP account with the organization's name as the sender name.
-  Derivion keeps sending exactly as before.
+* Every organization's emails go out through the platform SMTP account, with **the organization's own sender name**
+  and reply-to (set in *Customisations → Sender Email Preferences*). Derivion keeps its own sender address.
 * **Logo:** the logo from *Company & Rules* appears in the header of every email (attached as an inline image,
   which Gmail and Outlook show), as it already does on payslips, letters, the sidebar and the mobile app.
   Changing the logo changes it everywhere immediately.

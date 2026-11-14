@@ -6,7 +6,6 @@ import { assignableRoles, canManageTarget } from '../lib/roles';
 import { BASE_FEATURES } from '../lib/billing/catalog';
 import { keyMode, stripeConfigProblems } from '../lib/stripe';
 import { hashToken, newToken, validTokenShape } from '../lib/tokens';
-import { open, seal } from '../lib/secret-box';
 import nodemailer from 'nodemailer';
 import { wrapEmail } from '../lib/email-templates';
 import { withLogo } from '../lib/org-mail';
@@ -102,26 +101,6 @@ test('email-link tokens: random, url-safe, only the hash is stored', () => {
   assert.ok(!validTokenShape('../etc/passwd'));
   assert.equal(hashToken(a).length, 64);
   assert.notEqual(hashToken(a), a);
-});
-
-test('organization mail passwords: encrypted, readable only with the key, tamper-proof', () => {
-  const save = process.env.MAIL_SECRET_KEY;
-  try {
-    process.env.MAIL_SECRET_KEY = 'k'.repeat(40);
-    const box = seal('app-password-123');
-    assert.ok(!box.includes('app-password-123'));
-    assert.notEqual(seal('app-password-123'), box); // random IV every time
-    assert.equal(open(box), 'app-password-123');
-    const parts = box.split('.');
-    parts[3] = (parts[3][0] === 'A' ? 'B' : 'A') + parts[3].slice(1);
-    assert.throws(() => open(parts.join('.')));
-    process.env.MAIL_SECRET_KEY = 'z'.repeat(40);
-    assert.throws(() => open(box)); // another key cannot read it
-    delete process.env.MAIL_SECRET_KEY;
-    assert.throws(() => seal('x'), /MAIL_SECRET_KEY/);
-  } finally {
-    if (save === undefined) delete process.env.MAIL_SECRET_KEY; else process.env.MAIL_SECRET_KEY = save;
-  }
 });
 
 // async: the logo check renders a real MIME message in memory

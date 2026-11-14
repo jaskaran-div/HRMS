@@ -12,7 +12,6 @@ import {
 import { fmtDate } from '@/lib/dates';
 
 import { ask } from '@/components/Dialog';
-import { ErrorBox } from '@/components/ui';
 type Tab = 'templates' | 'sender';
 
 interface Row { type: string; title: string | null; subject: string; body: string; updated_at: string }
@@ -188,15 +187,9 @@ function TemplateEditor({ type, onBack }: { type: string; onBack: () => void }) 
 function SenderPrefs() {
   const { settings, notify } = useApp();
   const router = useRouter();
-  // the first organization (Derivion) sends from its own address through the server's SMTP, as before
+  // the first organization (Derivion) chooses its sender address, as before; other organizations send from the
+  // platform's address (with their own name) — an address the server's SMTP account is not allowed to use would bounce
   const legacy = settings.id === 1;
-  const mail = useLoad(async () => {
-    const r = await fetch('/api/org/mail');
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error ?? 'Could not load the mail settings');
-    return j as MailInfo;
-  }, []);
-  const own = mail.data?.server ?? null;
   const [f, setF] = useState({ sender_name: settings.sender_name ?? '', sender_email: settings.sender_email || '', reply_to: settings.reply_to ?? '', email_domains: settings.email_domains ?? '' });
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
@@ -215,115 +208,19 @@ function SenderPrefs() {
     router.refresh();
   }
 
-  const shownAddress = own?.from_email ?? (legacy ? f.sender_email : mail.data?.platform_sender ?? settings.sender_email);
   return (
-    <>
     <form className="card" onSubmit={save}>
       <h3>Sender Email Preferences</h3>
-      <p className="muted small" style={{ marginTop: 0 }}>Employees see emails as <b>“{f.sender_name.trim() || settings.company_name} &lt;{shownAddress || '…'}&gt;”</b>{f.reply_to.trim() ? <>, and replies go to <b>{f.reply_to.trim()}</b></> : null}.</p>
+      <p className="muted small" style={{ marginTop: 0 }}>Employees see emails from <b>“{f.sender_name.trim() || settings.company_name}”</b>{f.reply_to.trim() ? <>, and replies go to <b>{f.reply_to.trim()}</b></> : null}.</p>
       <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))' }}>
         <label>Sender name<input value={f.sender_name} onChange={set('sender_name')} placeholder={settings.company_name} /><span className="hint">Shown as the sender. Blank = company name.</span></label>
-        {legacy && !own
+        {legacy
           ? <label>Sender email<input type="email" value={f.sender_email} onChange={set('sender_email')} required /><span className="hint">Emails are sent from this address. It must be allowed by the server’s SMTP account.</span></label>
-          : <label>Sender email<input value={shownAddress ?? ''} readOnly /><span className="hint">{own ? 'Your own mail account (change it below).' : 'The platform’s sending address. Connect your own mail account below to send from your company address.'}</span></label>}
-        <label>Reply-to (optional)<input type="email" value={f.reply_to} onChange={set('reply_to')} /></label>
+          : <label>Sender email<input value={settings.sender_email ?? ''} readOnly /><span className="hint">The sending address is managed by the platform.</span></label>}
+        <label>Reply-to (optional)<input type="email" value={f.reply_to} onChange={set('reply_to')} /><span className="hint">Replies from employees go here.</span></label>
         <label>Official email domains<input value={f.email_domains} onChange={set('email_domains')} placeholder="company.com, company.in" /><span className="hint">Emails only go to addresses at these domains (never personal ones). Comma separated. Blank = the sender address’s domain.</span></label>
       </div>
       <div className="row" style={{ marginTop: 14, marginBottom: 0 }}><button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div>
     </form>
-    <MailServer info={mail.data ?? null} loading={mail.loading} error={mail.error ?? null} reload={mail.reload} onSaved={() => router.refresh()} />
-    </>
-  );
-}
-
-interface MailInfo {
-  ready: boolean;
-  platform_sender: string | null;
-  server: { provider: string | null; host: string; port: number; secure: boolean; username: string; from_email: string; verified_at: string | null } | null;
-}
-
-const PROVIDERS: Record<string, { label: string; host: string; port: number; secure: boolean; help: string }> = {
-  gmail: { label: 'Gmail / Google Workspace', host: 'smtp.gmail.com', port: 465, secure: true, help: 'Use an app password: Google Account → Security → 2-Step Verification → App passwords.' },
-  outlook: { label: 'Outlook / Microsoft 365', host: 'smtp.office365.com', port: 587, secure: false, help: 'Your Microsoft 365 admin may need to allow “Authenticated SMTP” for this mailbox. With 2-step verification, use an app password.' },
-  zoho: { label: 'Zoho Mail', host: 'smtp.zoho.in', port: 465, secure: true, help: 'Use smtp.zoho.com outside India. With 2-factor login, create an application-specific password in Zoho.' },
-  other: { label: 'Other mail server', host: '', port: 587, secure: false, help: 'Ask your email provider for the SMTP host, port and login.' },
-};
-
-/** Connect the organization's own mailbox, so emails come from the company's own address. */
-function MailServer({ info, loading, error, reload, onSaved }: { info: MailInfo | null; loading: boolean; error: string | null; reload: () => void; onSaved: () => void }) {
-  const { notify } = useApp();
-  const s = info?.server;
-  const [editing, setEditing] = useState(false);
-  const [f, setF] = useState({ provider: 'gmail', host: PROVIDERS.gmail.host, port: String(PROVIDERS.gmail.port), secure: true, username: '', password: '', from_email: '' });
-  const [busy, setBusy] = useState(false);
-  const [fail, setFail] = useState<string | null>(null);
-  const set = (k: 'host' | 'port' | 'username' | 'password' | 'from_email') => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
-
-  function start() {
-    setFail(null);
-    if (s) setF({ provider: s.provider ?? 'other', host: s.host, port: String(s.port), secure: s.secure, username: s.username, password: '', from_email: s.from_email });
-    setEditing(true);
-  }
-  function pick(p: string) {
-    const x = PROVIDERS[p];
-    setF({ ...f, provider: p, host: x.host || f.host, port: String(x.port), secure: x.secure });
-  }
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true); setFail(null);
-    const r = await fetch('/api/org/mail', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...f, port: Number(f.port), from_email: f.from_email || f.username }) });
-    const j = await r.json().catch(() => ({}));
-    setBusy(false);
-    if (!r.ok) { setFail(`${j.error ?? 'Could not save.'}${j.detail ? ` (${j.detail})` : ''}`); return; }
-    notify('Connected — your emails now come from your own address');
-    setEditing(false); reload(); onSaved();
-  }
-  async function disconnect() {
-    if (!(await ask.confirm({ title: 'Disconnect your mail account?', tone: 'warn', confirmText: 'Disconnect', message: 'Emails will be sent from the platform’s address again (with your company name as the sender).' }))) return;
-    await fetch('/api/org/mail', { method: 'DELETE' });
-    notify('Disconnected'); reload(); onSaved();
-  }
-
-  return (
-    <div className="card">
-      <h3>Your mail server</h3>
-      <p className="muted small" style={{ marginTop: 0 }}>Connect your company’s own mailbox (for example <b>hr@yourcompany.com</b>). Payslips, leave emails, login details and all other emails then go out from that address, through your own email account — employees only ever see your company’s address, and their replies arrive in that mailbox.</p>
-      {error && <ErrorBox message={error} onRetry={reload} />}
-      {info && !info.ready && <div className="note warn">The server is not ready to store mail passwords yet (MAIL_SECRET_KEY missing). Ask the platform administrator.</div>}
-      {!loading && info && !editing && (s ? <>
-        <div className="note ok">Connected: emails are sent from <b>{s.from_email}</b> via {s.host}:{s.port}{s.verified_at ? `, tested ${new Date(s.verified_at).toLocaleDateString()}` : ''}.</div>
-        <div className="row" style={{ marginTop: 12, marginBottom: 0 }}>
-          <button className="btn" onClick={start}>Change</button>
-          <button className="btn danger" onClick={disconnect}>Disconnect</button>
-          <span className="muted small">Use “Send test email” on any template to see it arrive.</span>
-        </div>
-      </> : <div className="row" style={{ marginBottom: 0 }}><button className="btn primary" disabled={!info.ready} onClick={start}>Connect my mail account</button></div>)}
-      {editing && (
-        <form onSubmit={save}>
-          <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
-            <label>Email provider
-              <select value={f.provider} onChange={e => pick(e.target.value)}>
-                {Object.entries(PROVIDERS).map(([k, p]) => <option key={k} value={k}>{p.label}</option>)}
-              </select>
-              <span className="hint">{PROVIDERS[f.provider]?.help}</span>
-            </label>
-            <label>Email address (login)<input type="email" value={f.username} onChange={set('username')} required placeholder="hr@yourcompany.com" autoComplete="off" /></label>
-            <label>Password / app password<input type="password" value={f.password} onChange={set('password')} required={!s} placeholder={s ? 'Unchanged — type to replace' : ''} autoComplete="new-password" /><span className="hint">Stored encrypted. Never shown again.</span></label>
-            <label>Send emails as<input type="email" value={f.from_email} onChange={set('from_email')} placeholder={f.username || 'Same as the login'} /><span className="hint">Usually the same as the login.</span></label>
-            {f.provider === 'other' && <>
-              <label>SMTP host<input value={f.host} onChange={set('host')} required placeholder="mail.yourcompany.com" /></label>
-              <label>Port<input type="number" value={f.port} onChange={set('port')} required /></label>
-              <label className="small" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={f.secure} onChange={e => setF({ ...f, secure: e.target.checked })} style={{ width: 'auto' }} /> TLS from the start (port 465)</label>
-            </>}
-          </div>
-          {fail && <div className="note bad" style={{ marginTop: 12 }}>{fail}</div>}
-          <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
-            <button className="btn primary" disabled={busy}>{busy ? 'Testing the connection…' : 'Test and save'}</button>
-            <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
-          </div>
-        </form>
-      )}
-    </div>
   );
 }

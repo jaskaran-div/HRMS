@@ -624,24 +624,7 @@ create table if not exists public.sales_inquiries (
 );
 alter table public.sales_inquiries enable row level security;
 
-------------------------------------------------------------------------------
--- An organization's own mail server: its emails then come from its own address (hr@theircompany.com).
--- Server only (RLS on, no policies): the browser can never read it. The password is AES-256-GCM encrypted
--- with MAIL_SECRET_KEY from the server environment, so the database alone cannot reveal it.
-------------------------------------------------------------------------------
-create table if not exists public.org_mail_settings (
-  org_id uuid primary key references public.organizations (id) on delete cascade,
-  provider text,                         -- gmail | outlook | zoho | other (only for the form)
-  host text not null,
-  port int not null check (port between 1 and 65535),
-  secure boolean not null default false, -- true = TLS from the start (465), false = STARTTLS (587)
-  username text not null,
-  password_enc text not null,
-  from_email text not null,
-  verified_at timestamptz,
-  updated_by uuid references public.profiles (id) on delete set null,
-  updated_at timestamptz not null default now()
-);
-alter table public.org_mail_settings enable row level security;
+-- (organizations cannot connect their own mail server: drop the table if an earlier run created it)
+drop table if exists public.org_mail_settings;
 
 commit;
