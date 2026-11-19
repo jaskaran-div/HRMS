@@ -72,7 +72,7 @@ export default function LeavesPage() {
       <td>{leaveLabel(l.leave_type)}</td>
       <td>{when(l)}<div className="muted small">applied {fmtDate(l.created_at)}</div></td>
       <td className="n">{l.days}</td>
-      <td style={{ maxWidth: 240 }}>{l.reason || <span className="muted">—</span>}</td>
+      <td style={{ minWidth: 180, maxWidth: 280, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.4 }}>{l.reason || <span className="muted">—</span>}</td>
       <td><LeaveStatus l={l} /></td>
       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
         {canEdit && canDecideStep(l, 'hr') && <>
