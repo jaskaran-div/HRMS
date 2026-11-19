@@ -5,6 +5,7 @@ import { DialogHost } from '@/components/Dialog';
 export const metadata: Metadata = {
   title: 'HR Portal',
   description: 'Employees, attendance, leave and payslips',
+  icons: { icon: '/favicon.ico', apple: '/favicon.ico' },
 };
 
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#1d6ff2' };
