@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useApp } from './AppContext';
 import { Modal } from './Modal';
 import { TimePicker } from './TimePicker';
@@ -12,21 +12,20 @@ import { fetchAll } from '@/lib/fetch-all';
 import { fmtTime, toMinutes, windows } from '@/lib/late';
 import type { Employee, Shift } from '@/lib/types';
 
-type Emp = Pick<Employee, 'id' | 'name' | 'emp_code' | 'department' | 'shift_id'>;
+type Emp = Pick<Employee, 'id' | 'shift_id'>;
 
 /**
- * Company & Rules → Shifts. HR adds shifts (name, start, end) and picks the employees on each. An employee on a shift
+ * Company & Rules → Shifts. HR adds shifts (name, start, end); each employee's shift is picked on their page. An employee on a shift
  * gets every check-in / check-out window moved with the shift; everyone else follows the company office timing.
  */
 export function ShiftsCard() {
   const { settings, notify } = useApp();
   const [editing, setEditing] = useState<Partial<Shift> | null>(null);
-  const [assigning, setAssigning] = useState<Shift | null>(null);
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
     const [{ data: shifts, error: e1 }, emps] = await Promise.all([
       sb.from('shifts').select('*').order('start_time'),
-      fetchAll<Emp>((a, b) => sb.from('employees').select('id, name, emp_code, department, shift_id').is('archived_at', null).order('name').range(a, b)),
+      fetchAll<Emp>((a, b) => sb.from('employees').select('id, shift_id').is('archived_at', null).not('shift_id', 'is', null).range(a, b)),
     ]);
     if (e1) throw new Error(e1.message);
     return { shifts: (shifts ?? []) as Shift[], emps };
@@ -58,6 +57,7 @@ export function ShiftsCard() {
       <p className="muted small" style={{ marginTop: 0 }}>
         Employees on a shift get the same check-in rules as above, moved to their shift times
         {w ? <> (e.g. late allowance {w.grace - w.start} min after the start, check-in closes {w.close - w.start} min after, second half {Math.round((w.second - w.start) / 6) / 10} h after)</> : null}.
+        Create shifts here (e.g. Shift 1, Shift 2), then pick each employee&apos;s shift on their page under <b>Edit details → Shift</b>.
         Everyone not on a shift follows the office timing.
       </p>
       {error ? <ErrorBox message={error} onRetry={reload} /> : (
@@ -75,7 +75,6 @@ export function ShiftsCard() {
                     <td className="muted small">{sw?.checkoutBy != null ? fmtTime(sw.checkoutBy) : '—'}</td>
                     <td className="n">{countOf(s.id)}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button type="button" className="btn sm" onClick={() => setAssigning(s)}>Employees</button>{' '}
                       <button type="button" className="btn sm" onClick={() => setEditing(s)}>Edit</button>{' '}
                       <button type="button" className="btn sm danger" onClick={() => remove(s)}>Delete</button>
                     </td>
@@ -88,7 +87,6 @@ export function ShiftsCard() {
         </div>
       )}
       {editing && <ShiftEditor shift={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
-      {assigning && <AssignEmployees shift={assigning} shifts={shifts} emps={emps} onClose={() => setAssigning(null)} onSaved={() => { setAssigning(null); reload(); }} />}
     </div>
   );
 }
@@ -125,56 +123,6 @@ function ShiftEditor({ shift, onClose, onSaved }: { shift: Partial<Shift>; onClo
       <div className="row" style={{ marginTop: 16, marginBottom: 0, justifyContent: 'flex-end' }}>
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
         <button type="button" className="btn primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save shift'}</button>
-      </div>
-    </Modal>
-  );
-}
-
-function AssignEmployees({ shift, shifts, emps, onClose, onSaved }: {
-  shift: Shift; shifts: Shift[]; emps: Emp[]; onClose: () => void; onSaved: () => void;
-}) {
-  const { notify } = useApp();
-  const [on, setOn] = useState(() => new Set(emps.filter(e => e.shift_id === shift.id).map(e => e.id)));
-  const [q, setQ] = useState('');
-  const [busy, setBusy] = useState(false);
-  const nameOf = useMemo(() => new Map(shifts.map(s => [s.id, s.name])), [shifts]);
-  const list = emps.filter(e => !q.trim() || [e.name, e.emp_code, e.department].some(x => (x ?? '').toLowerCase().includes(q.trim().toLowerCase())));
-  const toggle = (id: string) => setOn(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-
-  async function save() {
-    const add = emps.filter(e => on.has(e.id) && e.shift_id !== shift.id).map(e => e.id);
-    const drop = emps.filter(e => !on.has(e.id) && e.shift_id === shift.id).map(e => e.id);
-    setBusy(true);
-    const sb = supabaseBrowser();
-    for (const [ids, value] of [[add, shift.id], [drop, null]] as [string[], string | null][]) {
-      for (let i = 0; i < ids.length; i += 200) {
-        const { error } = await sb.from('employees').update({ shift_id: value }).in('id', ids.slice(i, i + 200));
-        if (error) { setBusy(false); notify(error.message, 'err'); return; }
-      }
-    }
-    setBusy(false);
-    notify(`${shift.name}: ${on.size} employee(s)`);
-    onSaved();
-  }
-
-  return (
-    <Modal title={`Employees on ${shift.name} (${fmtTime(shift.start_time)} – ${fmtTime(shift.end_time)})`} onClose={onClose}>
-      <input placeholder="Search name, ID, department" value={q} onChange={e => setQ(e.target.value)} style={{ width: '100%', marginBottom: 10 }} />
-      <div className="shift-list">
-        {list.map(e => (
-          <label key={e.id} className="shift-row">
-            <input type="checkbox" checked={on.has(e.id)} onChange={() => toggle(e.id)} />
-            <span><b>{e.name}</b> <span className="muted small">{e.emp_code}{e.department ? ` · ${e.department}` : ''}</span></span>
-            {e.shift_id && e.shift_id !== shift.id && <span className="pill gray">now: {nameOf.get(e.shift_id) ?? 'other shift'}</span>}
-          </label>
-        ))}
-        {!list.length && <div className="muted small" style={{ padding: 12 }}>No one matches.</div>}
-      </div>
-      <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
-        <span className="muted small">{on.size} selected. Ticking someone on another shift moves them here.</span>
-        <span style={{ flex: 1 }} />
-        <button type="button" className="btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
     </Modal>
   );

@@ -13,8 +13,8 @@ import { fmtDate, todayISO } from '@/lib/dates';
 import { rulesFrom } from '@/lib/payroll';
 import { EXIT_TYPES } from '@/lib/exit-types';
 import { buildExit, LEAVING_LABEL, leavingDate } from '@/lib/exit';
-import { EMPLOYEE_FIELDS, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
-import type { Attendance, Employee, PayslipRow } from '@/lib/types';
+import { employeeFields, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
+import type { Attendance, Employee, PayslipRow, Shift } from '@/lib/types';
 
 import { ask as dialog } from '@/components/Dialog';
 const chunks = <T,>(xs: T[], n = 100) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
@@ -26,6 +26,11 @@ export default function EmployeesPage() {
   const [dept, setDept] = useState('');
   const [archived, setArchived] = useState(false);
   const [adding, setAdding] = useState(false);
+  // the Shift dropdown in "Add employee"
+  const { data: shifts = [] } = useLoad(async () => {
+    const { data } = await supabaseBrowser().from('shifts').select('*').order('start_time');
+    return (data ?? []) as Shift[];
+  }, [adding]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [exitMonths, setExitMonths] = useState<3 | 6>(3);
   const [busy, setBusy] = useState(false);
@@ -217,7 +222,7 @@ export default function EmployeesPage() {
 
       {adding && (
         <FormModal
-          title="Add employee" fields={EMPLOYEE_FIELDS} initial={employeeToValues()} onClose={() => setAdding(false)}
+          title="Add employee" fields={employeeFields(shifts)} initial={employeeToValues()} onClose={() => setAdding(false)}
           onSave={async v => {
             const row = valuesToEmployee(v);
             const { error } = await supabaseBrowser().from('employees').insert(row);

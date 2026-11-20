@@ -15,14 +15,15 @@ import { payFor, rulesFrom } from '@/lib/payroll';
 import { EXIT_TYPES } from '@/lib/exit-types';
 import { buildExit, carryInto, leavingDate } from '@/lib/exit';
 import { downloadRelieving, openRelieving } from '@/lib/relieving-pdf';
-import { EMPLOYEE_FIELDS, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
+import { employeeFields, employeeToValues, valuesToEmployee } from '@/lib/employee-form';
+import { fmtTime } from '@/lib/late';
 import { downloadPayslips, openPayslips, printPayslips, payslipFilename } from '@/lib/payslip-pdf';
 import { buildPayslip } from '@/lib/payroll';
 import { emailPayslips } from '@/lib/send-email';
 import { ComposeEmail } from '@/components/ComposeEmail';
 import { TEMPLATE_META, type EmailTemplateType } from '@/lib/email-templates';
 import { todayISO } from '@/lib/dates';
-import type { Attendance, Employee, ExitRecord, PayslipData, PayslipRow } from '@/lib/types';
+import type { Attendance, Employee, ExitRecord, PayslipData, PayslipRow, Shift } from '@/lib/types';
 
 import { ask } from '@/components/Dialog';
 import { officialEmailOf } from '@/lib/official-email';
@@ -54,15 +55,16 @@ export default function EmployeePage() {
     const { data: emp, error } = await sb.from('employees').select('*').eq('emp_code', code).maybeSingle();
     if (error) throw new Error(error.message);
     if (!emp) return null;
-    const [att, slips, exit] = await Promise.all([
+    const [att, slips, exit, shifts] = await Promise.all([
       sb.from('attendance').select('*').eq('employee_id', emp.id).order('month', { ascending: false }),
       sb.from('payslips').select('*').eq('employee_id', emp.id).order('month', { ascending: false }),
       sb.from('exit_records').select('*').eq('employee_id', emp.id).maybeSingle(),
+      sb.from('shifts').select('*').order('start_time'),
     ]);
     if (att.error) throw new Error(att.error.message);
     return {
       emp: emp as Employee, att: (att.data ?? []) as Attendance[], slips: (slips.data ?? []) as PayslipRow[],
-      exit: (exit.data ?? null) as ExitRecord | null,
+      exit: (exit.data ?? null) as ExitRecord | null, shifts: (shifts.data ?? []) as Shift[],
     };
   }, [code]);
 
@@ -75,6 +77,10 @@ export default function EmployeePage() {
     );
   }
   const { emp, att, slips, exit } = data;
+  const shiftLabel = (id: string | null | undefined) => {
+    const sh = id ? data.shifts.find(x => x.id === id) : null;
+    return sh ? `${sh.name} (${fmtTime(sh.start_time)} – ${fmtTime(sh.end_time)})` : 'Office timing';
+  };
   const rules = rulesFrom(settings);
   const company = { name: settings.company_name, address: settings.company_address, logo: settings.logo, footer: settings.footer_note };
 
@@ -174,6 +180,7 @@ export default function EmployeePage() {
             <>
               <div className="grid">
                 {kv('Employee ID', emp.emp_code)}{kv('Department', emp.department)}{kv('Designation', emp.designation)}
+                {kv('Shift', shiftLabel(emp.shift_id))}
                 {kv('Date of joining', fmtDate(emp.doj))}{kv('Date of birth', fmtDate(emp.dob))}{kv('Location', emp.location)}
                 {kv('Reporting manager', emp.manager)}{kv('Email', emp.email)}{kv('Phone', emp.phone)}{kv('Emergency contact', emp.emergency_name)}{kv('Emergency number', emp.emergency_phone)}
                 {kv('PAN', emp.pan)}{kv('PF / UAN', emp.pf_no)}{kv('Bank', emp.bank_name)}
@@ -302,7 +309,7 @@ export default function EmployeePage() {
         <FormModal
           title={`Edit — ${emp.name}`}
           fields={[
-            ...EMPLOYEE_FIELDS.map(f => (f.key === 'emp_code' ? { ...f, readOnly: true } : f)),
+            ...employeeFields(data.shifts).map(f => (f.key === 'emp_code' ? { ...f, readOnly: true } : f)),
             ...Object.keys(emp.extra ?? {}).map(k => ({ key: 'x:' + k, label: k })),
           ]}
           initial={employeeToValues(emp)} onClose={() => setEditing(false)}
