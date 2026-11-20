@@ -6,6 +6,7 @@ import { useApp } from '@/components/AppContext';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { num } from '@/lib/format';
 import { fmtTime, toMinutes } from '@/lib/late';
+import { TimePicker } from '@/components/TimePicker';
 
 export default function SettingsPage() {
   const { settings, isAdmin, notify } = useApp();
@@ -152,29 +153,34 @@ export default function SettingsPage() {
       <div className="card">
         <h3>Office timing (late check-in)</h3>
         <p className="muted small" style={{ marginTop: 0 }}>
-          Applied automatically when an employee checks in from the mobile app. Check-in by the office start time counts as <b>Present</b>.
-          A late check-in up to the late allowance time still counts as <b>Present</b> for the first {Math.max(0, Math.round(num(f.late_allowed_per_month)))} time(s) a month;
-          after that, and any check-in after the late allowance time, the day is marked a <b>Half day</b>. A morning short leave on the day excuses coming in late.
+          Applied automatically when an employee checks in from the mobile app. A morning short leave on the day excuses coming in late.
         </p>
-        <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
-          <label>Office start time (regular time)
-            <input type="time" value={f.office_start_time} onChange={set('office_start_time')} />
-            <span className="hint">Blank = no late rule: every check-in is Present.</span>
-          </label>
-          <label>Late allowance until
-            <input type="time" value={f.late_grace_until} min={f.office_start_time || undefined} onChange={set('late_grace_until')} disabled={!f.office_start_time} />
+        <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
+          <div className="lbl">Office start time
+            <TimePicker value={f.office_start_time} clearable placeholder="No late rule" onChange={v => setF(x => ({ ...x, office_start_time: v, late_grace_until: v && !x.late_grace_until ? v : x.late_grace_until }))} />
+            <span className="hint">The regular time. Clear it to turn the rule off.</span>
+          </div>
+          <div className="lbl">Late allowance until
+            <TimePicker value={f.late_grace_until} disabled={!f.office_start_time} onChange={v => setF(x => ({ ...x, late_grace_until: v }))} />
             <span className="hint">Latest check-in that can still count as Present.</span>
-          </label>
+          </div>
           <label>Late check-ins allowed per month
             <input type="number" min={0} max={31} step={1} value={f.late_allowed_per_month} onChange={set('late_allowed_per_month')} disabled={!f.office_start_time} />
-            <span className="hint">Late check-ins after these count as half days.</span>
+            <span className="hint">Late check-ins beyond these are half days.</span>
           </label>
         </div>
-        {f.office_start_time && f.late_grace_until && (
-          <p className="small" style={{ marginBottom: 0 }}>
-            e.g. check-in by {fmtTime(f.office_start_time)} = Present · {fmtTime(f.office_start_time)}–{fmtTime(f.late_grace_until)} = Present the first {Math.max(0, Math.round(num(f.late_allowed_per_month)))} time(s) this month, then Half day · after {fmtTime(f.late_grace_until)} = Half day.
-          </p>
-        )}
+        {f.office_start_time && f.late_grace_until && (() => {
+          const n = Math.max(0, Math.round(num(f.late_allowed_per_month)));
+          return (
+            <div className="rule-sum">
+              <div><span className="t">By {fmtTime(f.office_start_time)}</span><span className="pill ok">Present</span></div>
+              <div><span className="t">{fmtTime(f.office_start_time)} – {fmtTime(f.late_grace_until)}</span>
+                {n > 0 ? <><span className="pill warn">Present</span><span className="muted small">first {n} time{n > 1 ? 's' : ''} a month, then</span></> : null}
+                <span className="pill bad">Half day</span></div>
+              <div><span className="t">After {fmtTime(f.late_grace_until)}</span><span className="pill bad">Half day</span></div>
+            </div>
+          );
+        })()}
         <button className="btn primary" style={{ marginTop: 14 }} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
 
