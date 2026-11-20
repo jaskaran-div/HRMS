@@ -6,7 +6,7 @@ import { canDecideStep, decidedBy, validateLeave, type LeaveInput } from '@/lib/
 import { emailLeaveCancelled, emailLeaveDecision, emailLeaveRequest, emailLeaveStep } from '@/lib/leave-mail';
 import { appUrl } from '@/lib/notify-mail';
 import { fmtDate, todayISO } from '@/lib/dates';
-import { leaveTitle } from '@/lib/leave';
+import { isPartDay, leaveTitle } from '@/lib/leave';
 import { hrUsers, leadUserOf, notifyUsers, usersOfEmployees } from '@/lib/push';
 import { canEditRole } from '@/lib/roles';
 import type { LeaveRequest, Settings } from '@/lib/types';
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     // older mobile app versions do not send it: then it stays unset
     short_session: b.short_session === undefined ? undefined : (b.short_session ?? ''),
   };
-  if (input.leave_type === 'short') input.end_date = input.start_date;
+  if (isPartDay(input.leave_type)) input.end_date = input.start_date;
 
   const admin = supabaseAdmin();
   const [{ data: settings }, { data: existing, error: exErr }, { data: emp }, leadStep] = await Promise.all([
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
   const { data: row, error } = await admin.from('leave_requests').insert({
     employee_id: empId, leave_type: input.leave_type, start_date: input.start_date, end_date: input.end_date,
     days: v.days, reason: input.reason || null, created_by: g.user.id,
-    short_session: input.leave_type === 'short' && input.short_session ? input.short_session : null, requested_type: input.leave_type, over_quota: v.overQuota,
+    short_session: isPartDay(input.leave_type) && input.short_session ? input.short_session : null, requested_type: input.leave_type, over_quota: v.overQuota,
     tl_status: leadStep ? 'pending' : 'not_required', hr_status: 'pending', status: 'pending',
   }).select('*').single();
   if (error || !row) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
@@ -132,7 +132,7 @@ export async function PATCH(req: Request) {
 
   const note = (b.note ?? '').trim().slice(0, 500) || null;
   const now = new Date().toISOString();
-  const validCountAs = l.leave_type !== 'short' && (b.count_as === 'paid' || b.count_as === 'unpaid') ? b.count_as : null;
+  const validCountAs = (l.leave_type === 'paid' || l.leave_type === 'unpaid') && (b.count_as === 'paid' || b.count_as === 'unpaid') ? b.count_as : null;
 
   // HR changing whether an approved leave counts as paid leave or absent — allowed whoever approved it
   if (step === 'hr' && b.action === 'approve' && l.status === 'approved' && validCountAs && decidedBy(l) !== 'hr') {
@@ -151,7 +151,7 @@ export async function PATCH(req: Request) {
   }
 
   const decision = b.action === 'approve' ? 'approved' : 'rejected';
-  // HR may approve a paid-leave request as absent (or an absent request as paid leave); short leave stays short leave
+  // HR may approve a paid-leave request as absent (or an absent request as paid leave); short leave / half day stay as they are
   const countAs = step === 'hr' && decision === 'approved' ? validCountAs : null;
   const status = decision;
   const { data: updated, error } = await admin.from('leave_requests').update({

@@ -37,7 +37,7 @@ export default async function PortalHome() {
     if (l.status !== 'approved') continue;
     for (let d = 1; d <= 31; d++) {
       const iso = `${stripMonth.slice(0, 8)}${String(d).padStart(2, '0')}`;
-      if (iso >= l.start_date && iso <= l.end_date && !marks[d]) { marks[d] = l.leave_type === 'short' ? 's' : l.leave_type === 'paid' ? 'l' : 'a'; titles[d] = `Approved ${leaveLabel(l.leave_type).toLowerCase()}`; }
+      if (iso >= l.start_date && iso <= l.end_date && !marks[d]) { marks[d] = l.leave_type === 'short' ? 's' : l.leave_type === 'half' ? 'h' : l.leave_type === 'paid' ? 'l' : 'a'; titles[d] = `Approved ${leaveLabel(l.leave_type).toLowerCase()}`; }
     }
   }
 
@@ -99,7 +99,7 @@ export default async function PortalHome() {
           <div className="card-h"><h3>Recent leave</h3><span className="sp" /><Link href="/portal/leave" className="btn sm">History</Link></div>
           {ls.slice(0, 5).map(l => (
             <div key={l.id} className="who-c" style={{ padding: '9px 0', borderBottom: '1px solid var(--line-2)' }}>
-              <span className="av"><Icon name={l.leave_type === 'short' ? 'clock' : 'plane'} size={16} /></span>
+              <span className="av"><Icon name={l.leave_type === 'short' || l.leave_type === 'half' ? 'clock' : 'plane'} size={16} /></span>
               <div style={{ flex: 1, minWidth: 0 }}><b>{leaveTitle(l)}</b>
                 <div className="muted small">{l.start_date === l.end_date ? fmtDate(l.start_date) : `${fmtDate(l.start_date)} – ${fmtDate(l.end_date)}`}</div></div>
               <span className={`pill ${STATUS_PILL[l.status]}`}>{stageText(l)}</span>

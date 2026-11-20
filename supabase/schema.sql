@@ -478,3 +478,21 @@ alter table public.attendance_punches add column if not exists in_status text ch
 
 -- Short leave is taken in the morning (come in late) or the evening (leave early)
 alter table public.leave_requests add column if not exists short_session text check (short_session in ('morning', 'evening'));
+
+-- Check-in windows (with office_start_time / late_grace_until above):
+--   morning check-in closes at checkin_close_time (after the grace time = Half day); then closed until second_half_start;
+--   second half: second_half_start .. + checkin_extra_min = Half day; nobody checked in by then = Absent (cron /api/cron/absent).
+--   Morning short leave: check in by morning_short_back + checkin_extra_min. Morning half-day leave: the second-half window.
+alter table public.settings add column if not exists checkin_close_time time default '11:00';
+alter table public.settings add column if not exists second_half_start time default '14:00';
+alter table public.settings add column if not exists morning_short_back time default '12:30';
+alter table public.settings add column if not exists checkin_extra_min int not null default 60 check (checkin_extra_min between 0 and 240);
+-- Half-day leave (applied by the employee, morning or evening): the first half_day_per_month a month are paid in full,
+-- the rest cost half a day's pay. 0 = every half day is half pay.
+alter table public.settings add column if not exists half_day_per_month numeric(4,1) not null default 0 check (half_day_per_month >= 0);
+alter table public.leave_requests drop constraint if exists leave_requests_leave_type_check;
+alter table public.leave_requests add constraint leave_requests_leave_type_check check (leave_type in ('short', 'half', 'paid', 'unpaid'));
+alter table public.leave_requests drop constraint if exists leave_requests_requested_type_check;
+alter table public.leave_requests add constraint leave_requests_requested_type_check check (requested_type in ('short', 'half', 'paid', 'unpaid'));
+-- Half days (H) in the month that are approved half-day leave (paid within half_day_per_month); other H = half pay
+alter table public.attendance add column if not exists half_leave_days numeric(4,1) not null default 0;

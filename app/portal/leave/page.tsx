@@ -22,7 +22,7 @@ export default async function LeavePage() {
   return (
     <LeaveCenter
       leaves={(data ?? []) as LeaveRequest[]} marked={(marked ?? []) as MarkedMonth[]} today={todayISO()} mailReady={mailConfigured()} recipients={recipients}
-      quota={{ short_leave_per_month: s.settings.short_leave_per_month, paid_leave_per_month: s.settings.paid_leave_per_month }}
+      quota={{ short_leave_per_month: s.settings.short_leave_per_month, paid_leave_per_month: s.settings.paid_leave_per_month, half_day_per_month: s.settings.half_day_per_month }}
     />
   );
 }

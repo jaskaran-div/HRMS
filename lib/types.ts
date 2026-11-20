@@ -52,6 +52,15 @@ export interface Settings {
   /** Late check-ins up to this time stay Present for the first `late_allowed_per_month` times a month. */
   late_grace_until?: string | null;
   late_allowed_per_month?: number | null;
+  /** Morning check-in closes at this time (after the grace time a check-in is a Half day). */
+  checkin_close_time?: string | null;
+  /** Second half of the day starts: check-in reopens for `checkin_extra_min` (Half day); nobody checked in by then = Absent. */
+  second_half_start?: string | null;
+  /** Employees on a morning short leave are back by this time (check in by it + `checkin_extra_min`). */
+  morning_short_back?: string | null;
+  checkin_extra_min?: number | null;
+  /** Half-day leaves a month paid in full; the rest cost half a day's pay. */
+  half_day_per_month?: number | null;
 }
 
 /** One day's mobile check-in / check-out. */
@@ -108,6 +117,8 @@ export interface Attendance {
   absent_days: number;
   leave_days: number;
   short_leave_days: number;
+  /** Half days (H) that are approved half-day leave: paid in full within the monthly half-day allowance. */
+  half_leave_days?: number | null;
   weekoff_days: number;
   holiday_days: number;
   arrears: number;
@@ -167,7 +178,7 @@ export const EMPLOYEE_TEXT_FIELDS = [
   'bank_name', 'account_no', 'ifsc', 'pan', 'pf_no',
 ] as const;
 
-export type LeaveType = 'short' | 'paid' | 'unpaid';
+export type LeaveType = 'short' | 'half' | 'paid' | 'unpaid';
 export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
 export type ShortSession = 'morning' | 'evening';

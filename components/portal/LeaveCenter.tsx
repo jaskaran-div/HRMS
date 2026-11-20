@@ -5,11 +5,11 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '../AppContext';
 import { LeaveStatus } from '../LeaveStatus';
 import { fmtDate, monthLabel } from '@/lib/dates';
-import { availableTypes, LEAVE_TYPES, leaveTitle, SHORT_SESSIONS, quotaFor, validateLeave, type MarkedMonth } from '@/lib/leave';
+import { availableTypes, isPartDay, LEAVE_TYPES, leaveTitle, SHORT_SESSIONS, quotaFor, validateLeave, type MarkedMonth } from '@/lib/leave';
 import type { LeaveRequest, LeaveType, Settings, ShortSession } from '@/lib/types';
 
 import { ask } from '../Dialog';
-type QuotaSettings = Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month'>;
+type QuotaSettings = Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month' | 'half_day_per_month'>;
 
 export function LeaveCenter({ leaves, marked, today, quota, mailReady, recipients }: {
   leaves: LeaveRequest[]; marked?: MarkedMonth[]; today: string; quota: QuotaSettings; mailReady: boolean; recipients: string[];
@@ -28,8 +28,9 @@ export function LeaveCenter({ leaves, marked, today, quota, mailReady, recipient
   const q = useMemo(() => quotaFor(leaves, month, quota, undefined, marked), [leaves, month, quota, marked]);
   const options = availableTypes(q);
   const chosen: LeaveType = type && options.includes(type) ? type : options[0];
+  const part = isPartDay(chosen);
   const check = start ? validateLeave({
-    leave_type: chosen, start_date: start, end_date: chosen === 'short' ? start : end || start, short_session: chosen === 'short' ? session : undefined,
+    leave_type: chosen, start_date: start, end_date: part ? start : end || start, short_session: part ? session : undefined,
   }, leaves, quota, today, marked) : null;
 
   async function apply(e: React.FormEvent) {
@@ -39,8 +40,8 @@ export function LeaveCenter({ leaves, marked, today, quota, mailReady, recipient
     const res = await fetch('/api/leave', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        leave_type: chosen, start_date: start, end_date: chosen === 'short' ? start : end, reason, email: sendMail && mailReady,
-        ...(chosen === 'short' ? { short_session: session } : {}),
+        leave_type: chosen, start_date: start, end_date: part ? start : end, reason, email: sendMail && mailReady,
+        ...(part ? { short_session: session } : {}),
       }),
     });
     const j = await res.json().catch(() => ({}));
@@ -71,23 +72,25 @@ export function LeaveCenter({ leaves, marked, today, quota, mailReady, recipient
         <h3>Apply for leave</h3>
         <form onSubmit={apply}>
           <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
-            <label>{chosen === 'short' ? 'Date' : 'From'}
+            <label>{part ? 'Date' : 'From'}
               <input type="date" value={start} required onChange={e => { setStart(e.target.value); if (!end || end < e.target.value) setEnd(e.target.value); }} />
             </label>
-            {chosen !== 'short' && (
+            {!part && (
               <label>To<input type="date" value={end} min={start} required onChange={e => setEnd(e.target.value)} /></label>
             )}
             <label>Leave type
               <select value={chosen} onChange={e => setType(e.target.value as LeaveType)}>
                 {LEAVE_TYPES.filter(t => options.includes(t.type)).map(t => <option key={t.type} value={t.type}>
-                  {t.label} — {t.type === 'paid' && q.paidLeft <= 0 ? "this month's is used, HR decides paid or absent" : t.hint}</option>)}
+                  {t.label} — {t.type === 'paid' && q.paidLeft <= 0 ? "this month's is used, HR decides paid or absent"
+                    : t.type === 'half' ? (q.halfLeft > 0 ? `${t.hint}, paid` : `${t.hint}, half a day's pay is cut`) : t.hint}</option>)}
               </select>
               <span className="hint">
                 {monthLabel(month)}: short leave {q.shortLeft}/{q.shortPerMonth} left · paid leave {q.paidLeft}/{q.paidPerMonth} left
+                {q.halfPerMonth > 0 && ` · paid half days ${q.halfLeft}/${q.halfPerMonth} left`}
                 {!options.includes('short') && ' — short leave is used.'}
               </span>
             </label>
-            {chosen === 'short' && (
+            {part && (
               <label>Morning or evening
                 <select value={session} required onChange={e => setSession(e.target.value as ShortSession | '')}>
                   <option value="">Choose…</option>
@@ -102,8 +105,10 @@ export function LeaveCenter({ leaves, marked, today, quota, mailReady, recipient
           <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
             <button className="btn primary" disabled={busy === 'apply' || !start || (check !== null && !check.ok)}>{busy === 'apply' ? 'Applying…' : 'Apply'}</button>
             {check && (check.ok
-              ? <span className={check.overQuota ? 'small' : 'muted small'}>{chosen === 'short' ? `Short leave on 1 day${session ? ` (${session})` : ''}` : `${check.days} working day(s)`} (week offs not counted)
-                  {check.overQuota && <> · <b>over this month&apos;s paid leave</b>: HR will decide if it is paid or counted as absent — give a clear reason.</>}</span>
+              ? <span className={check.overQuota ? 'small' : 'muted small'}>{part ? `${chosen === 'half' ? 'Half day' : 'Short leave'} on 1 day${session ? ` (${session})` : ''}` : `${check.days} working day(s)`}{!part && ' (week offs not counted)'}
+                  {check.overQuota && (chosen === 'half'
+                    ? <> · <b>over this month&apos;s paid half days</b>: half a day&apos;s pay will be cut.</>
+                    : <> · <b>over this month&apos;s paid leave</b>: HR will decide if it is paid or counted as absent — give a clear reason.</>)}</span>
               : <span className="err small">{check.error}</span>)}
             <label className="small muted" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input type="checkbox" checked={sendMail && mailReady} disabled={!mailReady || !recipients.length} onChange={e => setSendMail(e.target.checked)} />

@@ -76,7 +76,7 @@ export default function LeavesPage() {
       <td><LeaveStatus l={l} /></td>
       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
         {canEdit && canDecideStep(l, 'hr') && <>
-          {l.status !== 'approved' && (l.leave_type === 'short'
+          {l.status !== 'approved' && (l.leave_type === 'short' || l.leave_type === 'half'
             ? <button className="btn sm primary" disabled={busy === l.id} onClick={() => decide(l, 'approve')}>Approve (HR)</button>
             : <>
                 <button className="btn sm primary" disabled={busy === l.id} title="Approve; the days count as paid leave (no salary cut)" onClick={() => decide(l, 'approve', 'paid')}>Approve – paid</button>{' '}
@@ -85,7 +85,7 @@ export default function LeavesPage() {
           {l.status !== 'rejected' && <button className="btn sm danger" disabled={busy === l.id} onClick={() => decide(l, 'reject')}>Decline (HR)</button>}
         </>}{' '}
         {/* whoever approved it, HR can still switch it between paid leave and absent */}
-        {canEdit && l.status === 'approved' && l.leave_type !== 'short' && (
+        {canEdit && l.status === 'approved' && (l.leave_type === 'paid' || l.leave_type === 'unpaid') && (
             <button className="btn sm" disabled={busy === l.id} title="Change whether this leave counts as paid leave or absent"
               onClick={() => decide(l, 'approve', l.leave_type === 'paid' ? 'unpaid' : 'paid')}>Count as {l.leave_type === 'paid' ? 'absent' : 'paid'}</button>
         )}

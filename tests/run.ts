@@ -10,7 +10,7 @@ import { rowsFromWorkbook, type SheetRow } from '../lib/sheet';
 import { availableTypes, canDecideStep, decidedBy, overallStatus, leaveTitle, quotaFor, stageText, validateLeave, workingDays } from '../lib/leave';
 import { employedIn } from '../lib/exit';
 import { countDays, monthDays } from '../lib/att-view';
-import { checkInStatus, fmtTime, minutesIST, toMinutes } from '../lib/late';
+import { checkInStatus, decideCheckIn, fmtTime, minutesIST, toMinutes } from '../lib/late';
 
 let passed = 0;
 const test = (name: string, fn: () => void) => {
@@ -202,7 +202,7 @@ test('brought-forward arrears and deductions flow into the pay', () => {
 
 const Q = { short_leave_per_month: 1, paid_leave_per_month: 1 };
 
-const L = (id: string, leave_type: 'short' | 'paid' | 'unpaid', start_date: string, end_date = start_date, status: 'pending' | 'approved' | 'rejected' | 'cancelled' = 'approved', days = 1) =>
+const L = (id: string, leave_type: 'short' | 'half' | 'paid' | 'unpaid', start_date: string, end_date = start_date, status: 'pending' | 'approved' | 'rejected' | 'cancelled' = 'approved', days = 1) =>
 
   ({ id, leave_type, start_date, end_date, status, days });
 
@@ -220,17 +220,17 @@ test('leave: working days skip Sundays and 2nd / 4th Saturdays', () => {
 
 test('leave: quota per month; used short / paid leave is no longer offered', () => {
 
-  assert.deepEqual(availableTypes(quotaFor([], '2026-11-01', Q)), ['short', 'paid', 'unpaid']);
+  assert.deepEqual(availableTypes(quotaFor([], '2026-11-01', Q)), ['short', 'half', 'paid', 'unpaid']);
 
   const used = [L('a', 'short', '2026-11-03'), L('b', 'paid', '2026-11-05')];
 
-  assert.deepEqual(availableTypes(quotaFor(used, '2026-11-01', Q)), ['paid', 'unpaid']); // short gone; paid still requestable (over the limit)
+  assert.deepEqual(availableTypes(quotaFor(used, '2026-11-01', Q)), ['half', 'paid', 'unpaid']); // short gone; paid still requestable (over the limit)
 
-  assert.deepEqual(availableTypes(quotaFor(used, '2026-12-01', Q)), ['short', 'paid', 'unpaid']); // new month, fresh quota
+  assert.deepEqual(availableTypes(quotaFor(used, '2026-12-01', Q)), ['short', 'half', 'paid', 'unpaid']); // new month, fresh quota
 
   // rejected / cancelled requests give the quota back
 
-  assert.deepEqual(availableTypes(quotaFor([L('a', 'paid', '2026-11-05', undefined, 'rejected')], '2026-11-01', Q)), ['short', 'paid', 'unpaid']);
+  assert.deepEqual(availableTypes(quotaFor([L('a', 'paid', '2026-11-05', undefined, 'rejected')], '2026-11-01', Q)), ['short', 'half', 'paid', 'unpaid']);
 
 });
 
@@ -240,7 +240,7 @@ test('leave: short / paid leave HR marked in the attendance calendar uses up the
   const nov = (daily: Record<string, string>) => [{ month: '2026-11-01', daily }];
   let q = quotaFor([], '2026-11-01', Q, undefined, nov({ '3': 'S', '5': 'L', '6': 'P' }));
   assert.equal(q.shortLeft, 0); assert.equal(q.paidLeft, 0);
-  assert.deepEqual(availableTypes(q), ['paid', 'unpaid']);
+  assert.deepEqual(availableTypes(q), ['half', 'paid', 'unpaid']);
   // an approved request HR also marked on the same day counts once
   q = quotaFor([L('a', 'short', '2026-11-03', undefined, 'approved')], '2026-11-01', { ...Q, short_leave_per_month: 2 }, undefined, nov({ '3': 'S' }));
   assert.equal(q.shortLeft, 1);
@@ -438,6 +438,58 @@ test('short leave needs morning or evening (older apps that do not send it still
   assert.equal(validateLeave(base, [], Q, '2026-11-10').ok, true);
   assert.equal(leaveTitle({ leave_type: 'short', short_session: 'evening' }), 'Short leave (Evening)');
   assert.equal(leaveTitle({ leave_type: 'paid', short_session: null }), 'Paid leave');
+});
+
+test('check-in windows: morning, closed gap, second half, absent; morning short leave / half day', () => {
+  const S = {
+    office_start_time: '10:00', late_grace_until: '10:30', late_allowed_per_month: 3, checkin_close_time: '11:00',
+    second_half_start: '14:00', morning_short_back: '12:30', checkin_extra_min: 60,
+  };
+  const at = (t: string) => toMinutes(t)!;
+  const go = (t: string, used = 0, leave: Parameters<typeof decideCheckIn>[3] = null) => decideCheckIn(at(t), S, used, leave);
+  const code = (d: ReturnType<typeof decideCheckIn>) => (d.ok ? d.code : 'blocked');
+  assert.equal(code(go('09:58')), 'P');
+  assert.equal(code(go('10:20')), 'P');                 // late, within the 3 a month
+  assert.equal(code(go('10:20', 3)), 'H');              // 4th late
+  assert.equal(code(go('10:45')), 'H');                 // after the grace time, before morning check-in closes
+  assert.equal(code(go('11:01')), 'blocked');           // closed until the second half
+  assert.match((go('12:00') as { error: string }).error, /2:00 PM to 3:00 PM/);
+  assert.equal(code(go('14:30')), 'H');                 // second half
+  assert.equal(code(go('15:01')), 'blocked');           // too late: absent
+  // morning short leave: back by 12:30 + 1 hour
+  const shortAm = { type: 'short' as const, session: 'morning' as const, approved: true };
+  assert.equal(code(go('13:25', 0, shortAm)), 'S');
+  assert.equal(code(go('13:25', 0, { ...shortAm, approved: false })), 'P');
+  assert.equal(code(go('13:45', 0, shortAm)), 'blocked'); // missed it: second half opens at 2
+  assert.equal(code(go('14:10', 0, shortAm)), 'H');
+  // morning half day: 2:00 - 3:00 PM, then absent
+  const halfAm = { type: 'half' as const, session: 'morning' as const, approved: true };
+  assert.equal(code(go('14:40', 0, halfAm)), 'H');
+  assert.equal(code(go('15:10', 0, halfAm)), 'blocked');
+  // evening ones: normal morning rules, the day counts as the leave
+  assert.equal(code(go('09:50', 0, { type: 'half', session: 'evening', approved: true })), 'H');
+  assert.equal(code(go('09:50', 0, { type: 'short', session: 'evening', approved: true })), 'S');
+  assert.equal(code(go('09:50', 0, { type: 'short', session: 'evening', approved: false })), 'P');
+  // no timing rule: anything goes
+  assert.equal(code(decideCheckIn(at('16:00'), { ...S, office_start_time: null }, 0, null)), 'P');
+});
+
+test('half-day leave: morning / evening required, half a day, paid within the monthly allowance', () => {
+  const Q = { short_leave_per_month: 1, paid_leave_per_month: 1, half_day_per_month: 1 };
+  const base = { leave_type: 'half' as const, start_date: '2026-11-12', end_date: '2026-11-12' };
+  assert.equal(validateLeave(base, [], Q, '2026-11-10').ok, false); // no session
+  const v = validateLeave({ ...base, short_session: 'evening' }, [], Q, '2026-11-10');
+  assert.ok(v.ok && v.days === 0.5 && !v.overQuota);
+  const used = [L('a', 'half', '2026-11-05')];
+  const v2 = validateLeave({ ...base, short_session: 'morning' }, used, Q, '2026-11-10');
+  assert.ok(v2.ok && v2.overQuota); // allowed, but half pay
+  assert.equal(quotaFor(used, '2026-11-01', Q).halfLeft, 0);
+  // pay: 2 half days, 1 of them approved half-day leave, 1 paid half day a month -> 1 half day paid in full
+  const att = { present: 20, half: 2, absent: 0, leave: 0, weekoff: 8, holiday: 0, halfLeave: 1 };
+  const p = computePay({ salary: 30000, arrears: 0, otherDeduction: 0, pf: 0, tds: 0, att, daysInMonth: 30 }, { ...rules(0), halfDayPerMonth: 1 });
+  assert.equal(p.halfPaid, 1); assert.equal(p.paidDays, 29.5);
+  const none = computePay({ salary: 30000, arrears: 0, otherDeduction: 0, pf: 0, tds: 0, att, daysInMonth: 30 }, rules(0));
+  assert.equal(none.halfPaid, 0); assert.equal(none.paidDays, 29);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

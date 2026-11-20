@@ -22,7 +22,7 @@ const BRUSHES = [
 ] as const;
 const KEY_OF: Record<string, keyof AttendanceCounts> = { P: 'present', A: 'absent', W: 'weekoff', H: 'half', L: 'leave', O: 'holiday', S: 'short' };
 /** Attendance mark for an approved leave request. */
-const LEAVE_CODE = { short: 'S', paid: 'L', unpaid: 'A' } as const;
+const LEAVE_CODE = { short: 'S', half: 'H', paid: 'L', unpaid: 'A' } as const;
 
 export type ApprovedLeave = Pick<LeaveRequest, 'employee_id' | 'leave_type' | 'start_date' | 'end_date'>;
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -114,6 +114,10 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved, lea
     return out;
   };
 
+  /** Half days (H) on days of approved half-day leave: paid in full within the monthly half-day allowance. */
+  const halfLeaveOf = (e: Employee, eff: Days) =>
+    [...(leaveDays.get(e.id) ?? [])].filter(([d, x]) => x.code === 'H' && eff[d] === 'H').length;
+
   const edit = (id: string, fn: (r: RowState) => RowState) => setRows(rs => ({ ...rs, [id]: { ...fn(rs[id]), dirty: true } }));
   const paint = (e: Employee, d: number) => {
     if (readOnly || d < firstDay(e)) return;
@@ -144,7 +148,7 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved, lea
       return {
         employee_id: e.id, month, salary: Number(attBy.get(e.id)?.salary) || Number(e.monthly_salary) || 0,
         present_days: c.present, half_days: c.half, absent_days: c.absent, leave_days: c.leave, weekoff_days: c.weekoff, holiday_days: c.holiday,
-        short_leave_days: c.short ?? 0,
+        short_leave_days: c.short ?? 0, half_leave_days: halfLeaveOf(e, eff),
         arrears: num(r.arrears), other_deduction: num(r.deduction),
         daily: Object.fromEntries(Object.entries(eff).map(([k, v]) => [String(k), v])),
       };
@@ -234,8 +238,8 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved, lea
               const totalsOnly = !!a && !a.daily && !r.dirty;
               const shownDays = effective(e, r.days);
               const c = totalsOnly
-                ? { present: +a!.present_days, half: +a!.half_days, absent: +a!.absent_days, leave: +a!.leave_days, weekoff: +a!.weekoff_days, holiday: +a!.holiday_days, short: +(a!.short_leave_days ?? 0) }
-                : countsOf(shownDays);
+                ? { present: +a!.present_days, half: +a!.half_days, absent: +a!.absent_days, leave: +a!.leave_days, weekoff: +a!.weekoff_days, holiday: +a!.holiday_days, short: +(a!.short_leave_days ?? 0), halfLeave: +(a!.half_leave_days ?? 0) }
+                : { ...countsOf(shownDays), halfLeave: halfLeaveOf(e, shownDays) };
               const pay = computePay({
                 salary: Number(a?.salary) || Number(e.monthly_salary) || 0, arrears: num(r.arrears), otherDeduction: num(r.deduction),
                 pf: Number(e.pf_amount), tds: Number(e.tds_amount), att: c, daysInMonth: dim, carry: carry.get(e.id),
@@ -292,6 +296,7 @@ export function AttendanceGrid({ month, emps, att, carry, readOnly, onSaved, lea
           {dirtyCount > 0 && <button className="btn" onClick={() => setRows(init())}>Discard changes</button>}
           <span className="muted small">Paid = Present + ½ Half + Week off + Holiday + Paid leave + Short leave, plus {Number(settings.paid_leave_per_month)} paid leave for the first absence.
             {' '}{Number(settings.short_leave_per_month ?? 1)} short leave a month is fully paid; each extra one (marked *) is paid as half a day.
+            {' '}{Number(settings.half_day_per_month ?? 0) > 0 ? `${Number(settings.half_day_per_month)} approved half-day leave a month is fully paid; other half days are paid as half a day.` : 'Half days are paid as half a day.'}
             Days with approved leave that are not marked yet have a dotted outline.</span>
         </div>
       )}

@@ -1,4 +1,4 @@
-import type { Settings } from './types';
+import type { Settings, ShortSession } from './types';
 
 export type InStatus = 'on_time' | 'late' | 'half_day';
 
@@ -17,28 +17,95 @@ export function minutesIST(at = new Date()): number {
   return h * 60 + m;
 }
 
-/** 'HH:MM' (24h) -> '10:30 AM'. */
-export function fmtTime(t: string | null | undefined): string {
-  const v = toMinutes(t);
+/** 'HH:MM' (24h) or minutes -> '10:30 AM'. */
+export function fmtTime(t: string | number | null | undefined): string {
+  const v = typeof t === 'number' ? t : toMinutes(t);
   if (v == null) return '—';
-  const h = Math.floor(v / 60), m = v % 60;
+  const h = Math.floor(v / 60) % 24, m = v % 60;
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
-type LateRules = Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month'>;
+export type LateRules = Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month'>
+  & Partial<Pick<Settings, 'checkin_close_time' | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min'>>;
+
+/** The day's windows in minutes after midnight, or null when there is no office timing rule. */
+export function windows(s: LateRules) {
+  const start = toMinutes(s.office_start_time);
+  if (start == null) return null;
+  const grace = Math.max(start, toMinutes(s.late_grace_until) ?? start);
+  const close = Math.max(grace, toMinutes(s.checkin_close_time) ?? grace);
+  const extra = Math.max(0, Number(s.checkin_extra_min ?? 60));
+  const second = Math.max(close, toMinutes(s.second_half_start) ?? close);
+  const shortBack = toMinutes(s.morning_short_back);
+  return {
+    start, grace, close, second, extra,
+    /** nobody checked in by now = Absent */
+    deadline: second + extra,
+    /** morning short leave: check in by this */
+    shortUntil: shortBack == null ? close : Math.max(close, shortBack + extra),
+    allowed: Number(s.late_allowed_per_month ?? 3),
+  };
+}
 
 /**
- * What a check-in at `inMinutes` counts as.
- * - on or before the office start time: on time (Present)
- * - after it, up to the grace time: late — Present while fewer than `late_allowed_per_month` late check-ins were used
- *   this month (`lateUsed`), otherwise Half day
- * - after the grace time: Half day
- * No office start time set = every check-in is on time.
+ * Late rule alone: on time by the start; late up to the grace time = Present while fewer than `late_allowed_per_month`
+ * were used this month (`lateUsed`), else Half day; after the grace time = Half day.
  */
 export function checkInStatus(inMinutes: number, s: LateRules, lateUsed: number): InStatus {
-  const start = toMinutes(s.office_start_time);
-  if (start == null || inMinutes <= start) return 'on_time';
-  const grace = Math.max(start, toMinutes(s.late_grace_until) ?? start);
-  if (inMinutes > grace) return 'half_day';
-  return lateUsed < Number(s.late_allowed_per_month ?? 3) ? 'late' : 'half_day';
+  const w = windows(s);
+  if (!w || inMinutes <= w.start) return 'on_time';
+  if (inMinutes > w.grace) return 'half_day';
+  return lateUsed < w.allowed ? 'late' : 'half_day';
+}
+
+/** The employee's short leave / half day on the day being checked in (approved, or still pending). */
+export interface DayLeave { type: 'short' | 'half'; session: ShortSession | null; approved: boolean }
+
+export type CheckInDecision =
+  | { ok: true; status: InStatus; code: 'P' | 'H' | 'S'; message?: string }
+  | { ok: false; error: string };
+
+/**
+ * What a check-in at `now` (minutes after midnight, IST) counts as, or why it is refused.
+ *
+ *  Normal day:   by start = Present · up to grace = Present (first N times a month) then Half day · up to close = Half day
+ *                · closed until the second half · second half .. + extra = Half day · after that closed (the day is Absent)
+ *  Morning short leave: check in by morning_short_back + extra (Short leave; Present while pending), else as a normal day
+ *  Morning half day:    check in by second half + extra (Half day), else closed (Absent)
+ *  Evening short leave / half day: normal morning rules; an approved one marks the day S / H.
+ */
+export function decideCheckIn(now: number, s: LateRules, lateUsed: number, leave?: DayLeave | null): CheckInDecision {
+  const w = windows(s);
+  const morning = leave?.session === 'morning';
+  const adjust = (code: 'P' | 'H' | 'S'): 'P' | 'H' | 'S' => {
+    if (!leave?.approved || code === 'H') return code;
+    return leave.type === 'half' ? 'H' : 'S';
+  };
+  if (!w) return { ok: true, status: 'on_time', code: adjust('P') };
+
+  const closedForDay = { ok: false as const, error: `Check-in closed at ${fmtTime(w.deadline)}. Today is marked absent — talk to HR if this is wrong.` };
+  const secondHalf = (why: string): CheckInDecision => (now < w.second
+    ? { ok: false, error: `${why} You can check in from ${fmtTime(w.second)} to ${fmtTime(w.deadline)} for a half day.` }
+    : now <= w.deadline
+      ? { ok: true, status: 'half_day', code: 'H', message: `Second-half check-in: today is marked as a half day.` }
+      : closedForDay);
+
+  if (morning && leave!.type === 'half') {
+    if (now > w.deadline) return closedForDay;
+    return { ok: true, status: 'on_time', code: 'H', message: 'Checked in after your morning half day: today is a half day.' };
+  }
+  if (morning && leave!.type === 'short') {
+    if (now <= w.shortUntil)
+      return { ok: true, status: 'on_time', code: leave!.approved ? 'S' : 'P', message: leave!.approved ? 'Checked in after your morning short leave.' : undefined };
+    return secondHalf(`Check-in after a morning short leave closed at ${fmtTime(w.shortUntil)}.`);
+  }
+
+  if (now <= w.start) return { ok: true, status: 'on_time', code: adjust('P') };
+  if (now <= w.grace) {
+    if (lateUsed < w.allowed)
+      return { ok: true, status: 'late', code: adjust('P'), message: `Late check-in (after ${fmtTime(w.start)}). ${lateUsed + 1} of ${w.allowed} late check-ins allowed this month used.` };
+    return { ok: true, status: 'half_day', code: 'H', message: `Late check-in: your ${w.allowed} late check-ins for this month are used, so today is marked as a half day.` };
+  }
+  if (now <= w.close) return { ok: true, status: 'half_day', code: 'H', message: `Late check-in after ${fmtTime(w.grace)}: today is marked as a half day.` };
+  return secondHalf(`Morning check-in closed at ${fmtTime(w.close)}.`);
 }

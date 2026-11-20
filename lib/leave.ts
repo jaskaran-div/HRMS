@@ -3,6 +3,7 @@ import type { LeaveRequest, LeaveStatus, LeaveType, Settings, ShortSession } fro
 
 export const LEAVE_TYPES: { type: LeaveType; label: string; hint: string }[] = [
   { type: 'short', label: 'Short leave', hint: 'A few hours on one day, paid' },
+  { type: 'half', label: 'Half day', hint: 'Morning or evening half of one day' },
   { type: 'paid', label: 'Paid leave', hint: 'Full day, salary not cut' },
   { type: 'unpaid', label: 'Absent (unpaid leave)', hint: 'Salary is cut for these days' },
 ];
@@ -16,9 +17,12 @@ export const SHORT_SESSIONS: { value: ShortSession; label: string; hint: string 
 ];
 export const sessionLabel = (s: ShortSession | null | undefined) => SHORT_SESSIONS.find(x => x.value === s)?.label ?? '';
 
+/** Leave types taken for part of one day, in the morning or the evening. */
+export const isPartDay = (t: LeaveType | null | undefined) => t === 'short' || t === 'half';
+
 /** Leave type as shown in lists and emails, e.g. "Short leave (Morning)". */
 export function leaveTitle(l: Pick<LeaveRequest, 'leave_type'> & { short_session?: ShortSession | null }): string {
-  const s = l.leave_type === 'short' ? sessionLabel(l.short_session) : '';
+  const s = isPartDay(l.leave_type) ? sessionLabel(l.short_session) : '';
   return s ? `${leaveLabel(l.leave_type)} (${s})` : leaveLabel(l.leave_type);
 }
 
@@ -47,7 +51,10 @@ export function workingDays(start: string, end: string): number {
   return n;
 }
 
-export interface Quota { shortLeft: number; paidLeft: number; shortPerMonth: number; paidPerMonth: number }
+/** The monthly allowances (half_day_per_month: older app versions do not send it). */
+export type QuotaSettings = Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month'> & Partial<Pick<Settings, 'half_day_per_month'>>;
+
+export interface Quota { shortLeft: number; paidLeft: number; shortPerMonth: number; paidPerMonth: number; halfLeft: number; halfPerMonth: number }
 
 /** What HR marked in the attendance calendar for one month (S = short leave, L = paid leave), or the imported totals. */
 export interface MarkedMonth { month: string; daily: Record<string, string> | null; short_leave_days?: number | null; leave_days?: number | null }
@@ -59,13 +66,15 @@ export interface MarkedMonth { month: string; daily: Record<string, string> | nu
  */
 export function quotaFor(
   leaves: (Pick<LeaveRequest, 'id' | 'leave_type' | 'start_date' | 'days' | 'status'> & { end_date?: string })[],
-  month: string, s: Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month'>, ignoreId?: string,
+  month: string, s: QuotaSettings, ignoreId?: string,
   marked?: MarkedMonth[] | null,
 ): Quota {
   const ym = month.slice(0, 7);
   const mine = leaves.filter(l => l.id !== ignoreId && counts(l) && l.start_date.slice(0, 7) === ym);
   const shortPerMonth = Number(s.short_leave_per_month ?? 1);
   const paidPerMonth = Number(s.paid_leave_per_month ?? 1);
+  const halfPerMonth = Number(s.half_day_per_month ?? 0);
+  const halfLeft = Math.max(0, halfPerMonth - new Set(mine.filter(l => l.leave_type === 'half').map(l => l.start_date)).size);
 
   const shortDays = new Set(mine.filter(l => l.leave_type === 'short').map(l => l.start_date));
   const paidDays = new Set<string>();
@@ -93,7 +102,10 @@ export function quotaFor(
     shortUsed = Math.max(shortUsed, Number(row.short_leave_days ?? 0));
     paidUsed = Math.max(paidUsed, Number(row.leave_days ?? 0));
   }
-  return { shortPerMonth, paidPerMonth, shortLeft: Math.max(0, shortPerMonth - shortUsed), paidLeft: Math.max(0, paidPerMonth - paidUsed) };
+  return {
+    shortPerMonth, paidPerMonth, halfPerMonth, halfLeft,
+    shortLeft: Math.max(0, shortPerMonth - shortUsed), paidLeft: Math.max(0, paidPerMonth - paidUsed),
+  };
 }
 
 /**
@@ -104,12 +116,12 @@ export function quotaFor(
 export function availableTypes(q: Quota): LeaveType[] {
   const out: LeaveType[] = [];
   if (q.shortLeft > 0) out.push('short');
-  out.push('paid', 'unpaid');
+  out.push('half', 'paid', 'unpaid');
   return out;
 }
 
 /**
- * `short_session`: short leave only. Left out (undefined) only by older mobile app versions that do not ask for it;
+ * `short_session`: short leave and half day: morning or evening. Left out (undefined) only by older mobile app versions that do not ask for it;
  * otherwise it must be 'morning' or 'evening'.
  */
 export interface LeaveInput { leave_type: LeaveType; start_date: string; end_date: string; reason?: string; short_session?: ShortSession | '' | null }
@@ -123,13 +135,14 @@ const MAX_UNPAID_DAYS = 31;
  */
 export function validateLeave(
   input: LeaveInput, existing: Pick<LeaveRequest, 'id' | 'leave_type' | 'start_date' | 'end_date' | 'days' | 'status'>[],
-  s: Pick<Settings, 'short_leave_per_month' | 'paid_leave_per_month'>, today: string, marked?: MarkedMonth[] | null,
+  s: QuotaSettings, today: string, marked?: MarkedMonth[] | null,
 ): { ok: true; days: number; overQuota: boolean } | { ok: false; error: string } {
   const { leave_type: t, start_date: a } = input;
-  const b = t === 'short' ? a : input.end_date || a;
+  const b = isPartDay(t) ? a : input.end_date || a;
   if (!LEAVE_TYPES.some(x => x.type === t)) return { ok: false, error: 'Pick a leave type.' };
-  if (t === 'short' && input.short_session !== undefined && !SHORT_SESSIONS.some(x => x.value === input.short_session))
-    return { ok: false, error: 'Pick when the short leave is: morning or evening.' };
+  // half day is new, so every app version that offers it also sends the session; short leave from older apps may not
+  if (isPartDay(t) && (t === 'half' || input.short_session !== undefined) && !SHORT_SESSIONS.some(x => x.value === input.short_session))
+    return { ok: false, error: `Pick when the ${t === 'half' ? 'half day' : 'short leave'} is: morning or evening.` };
   if (!ISO.test(a) || !ISO.test(b)) return { ok: false, error: 'Pick the date(s).' };
   if (b < a) return { ok: false, error: 'The end date is before the start date.' };
   const back = new Date(parse(today)); back.setDate(back.getDate() - 30);
@@ -140,17 +153,18 @@ export function validateLeave(
   const clash = existing.find(l => counts(l) && l.start_date <= b && l.end_date >= a);
   if (clash) return { ok: false, error: `You already have a ${leaveLabel(clash.leave_type).toLowerCase()} request on these dates.` };
 
-  const days = t === 'short' ? 1 : workingDays(a, b);
+  const days = t === 'short' ? 1 : t === 'half' ? 0.5 : workingDays(a, b);
   if (days === 0) return { ok: false, error: 'Those dates are all week offs.' };
-  if (t === 'short' && isWeekOff(a)) return { ok: false, error: 'That day is a week off.' };
+  if (isPartDay(t) && isWeekOff(a)) return { ok: false, error: 'That day is a week off.' };
 
   if (t !== 'unpaid' && a.slice(0, 7) !== b.slice(0, 7)) return { ok: false, error: 'Paid leave must be within one month.' };
   const q = quotaFor(existing, `${a.slice(0, 7)}-01`, s, undefined, marked);
   if (t === 'short' && q.shortLeft <= 0)
     return { ok: false, error: `Your short leave for this month is used (${q.shortPerMonth} per month). Apply as absent instead.` };
-  if (t !== 'short' && days > MAX_UNPAID_DAYS) return { ok: false, error: `Apply for at most ${MAX_UNPAID_DAYS} working days at a time.` };
+  if (!isPartDay(t) && days > MAX_UNPAID_DAYS) return { ok: false, error: `Apply for at most ${MAX_UNPAID_DAYS} working days at a time.` };
   // paid leave beyond the monthly allowance is allowed, but HR decides whether it is paid or absent
-  return { ok: true, days, overQuota: t === 'paid' && days > q.paidLeft };
+  // half day beyond the monthly paid half days: still allowed, it just costs half a day's pay
+  return { ok: true, days, overQuota: (t === 'paid' && days > q.paidLeft) || (t === 'half' && q.halfLeft <= 0) };
 }
 
 type Steps = Pick<LeaveRequest, 'status' | 'tl_status' | 'hr_status' | 'tl_by_name' | 'hr_by_name'> & Partial<Pick<LeaveRequest, 'tl_at' | 'hr_at'>>;

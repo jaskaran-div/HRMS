@@ -31,7 +31,7 @@ export function LeaveStatus({ l }: { l: LeaveRequest }) {
       {(l.status === 'approved' || l.status === 'rejected') && (decidedBy(l) === 'tl'
         ? <Step who="Team leader" status={l.status} by={l.tl_by_name} at={l.tl_at} note={l.tl_note} />
         : <Step who="HR" status={l.status} by={l.hr_by_name} at={l.hr_at} note={l.hr_note} />)}
-      {l.over_quota && l.status === 'pending' && <div className="small" style={{ marginTop: 3 }}><span className="pill warn">Over this month&apos;s paid leave — HR decides paid or absent</span></div>}
+      {l.over_quota && l.status === 'pending' && <div className="small" style={{ marginTop: 3 }}><span className="pill warn">{l.leave_type === 'half' ? "Over this month's paid half days — half a day's pay is cut" : "Over this month's paid leave — HR decides paid or absent"}</span></div>}
       {l.requested_type && l.requested_type !== l.leave_type && (
         <div className="small" style={{ marginTop: 3 }}>Asked for {leaveLabel(l.requested_type).toLowerCase()} · <b>counted as {leaveLabel(l.leave_type).toLowerCase()}</b></div>
       )}

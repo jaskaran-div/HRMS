@@ -5,6 +5,8 @@ export interface PayRules {
   paidLeavePerMonth: number;
   /** Short leaves per month that are fully paid; extra ones are paid as half days. */
   shortLeavePerMonth: number;
+  /** Approved half-day leaves per month paid in full; other half days are paid as half a day. */
+  halfDayPerMonth?: number;
   basicPct: number;
   hraPct: number;
   conveyancePct: number; // special allowance = the remainder
@@ -13,6 +15,7 @@ export interface PayRules {
 export const rulesFrom = (s: Settings): PayRules => ({
   paidLeavePerMonth: Number(s.paid_leave_per_month),
   shortLeavePerMonth: Number(s.short_leave_per_month ?? 1),
+  halfDayPerMonth: Number(s.half_day_per_month ?? 0),
   basicPct: Number(s.basic_pct),
   hraPct: Number(s.hra_pct),
   conveyancePct: Number(s.conveyance_pct),
@@ -27,6 +30,8 @@ export interface AttendanceCounts {
   holiday: number;
   /** Short leave days (left early / came late for a few hours). */
   short?: number;
+  /** Of the half days, how many are approved half-day leave (can be paid in full, see halfDayPerMonth). */
+  halfLeave?: number;
 }
 
 export interface PayInput {
@@ -51,6 +56,7 @@ export interface PayResult {
   leaveConverted: number; // absent days covered by the monthly paid-leave allowance
   shortPaid: number; // short leaves paid in full
   shortHalf: number; // short leaves beyond the monthly allowance, paid as half days
+  halfPaid: number; // half-day leaves paid in full (within the monthly half-day allowance)
   earnings: PayLine[];
   deductions: PayLine[];
   gross: number;
@@ -59,9 +65,10 @@ export interface PayResult {
 }
 
 /**
- * paid days = present + half/2 + paid leave + week offs + holidays + short leaves
+ * paid days = present + half/2 (+ another 1/2 for each paid half-day leave) + paid leave + week offs + holidays + short leaves
  * The first `paidLeavePerMonth` absent days are paid (the monthly paid leave).
  * The first `shortLeavePerMonth` short leaves are paid in full; any extra short leave is paid as half a day.
+ * The first `halfDayPerMonth` approved half-day leaves are paid in full; other half days (late check-in etc.) are half pay.
  * Pay = salary / days in month x paid days, rounded to the rupee, then split by the salary structure.
  */
 export function computePay(i: PayInput, r: PayRules): PayResult {
@@ -71,9 +78,10 @@ export function computePay(i: PayInput, r: PayRules): PayResult {
   const short = a.short ?? 0;
   const shortPaid = Math.min(short, Math.max(0, r.shortLeavePerMonth ?? 1));
   const shortHalf = short - shortPaid;
+  const halfPaid = Math.min(a.half, a.halfLeave ?? 0, Math.max(0, r.halfDayPerMonth ?? 0));
   const paidDays = Math.min(
     i.daysInMonth,
-    a.present + a.half * 0.5 + a.leave + leaveConverted + a.weekoff + a.holiday + shortPaid + shortHalf * 0.5,
+    a.present + a.half * 0.5 + halfPaid * 0.5 + a.leave + leaveConverted + a.weekoff + a.holiday + shortPaid + shortHalf * 0.5,
   );
   const lopDays = Math.max(0, i.daysInMonth - paidDays);
 
@@ -103,7 +111,7 @@ export function computePay(i: PayInput, r: PayRules): PayResult {
 
   const gross = earned + (i.arrears > 0 ? i.arrears : 0) + cArrears;
   const totalDeductions = i.tds + i.pf + (i.otherDeduction > 0 ? i.otherDeduction : 0) + cDeduction;
-  return { paidDays, lopDays, leaveConverted, shortPaid, shortHalf, earnings, deductions, gross, totalDeductions, net: gross - totalDeductions };
+  return { paidDays, lopDays, leaveConverted, shortPaid, shortHalf, halfPaid, earnings, deductions, gross, totalDeductions, net: gross - totalDeductions };
 }
 
 export const countsFrom = (a: Attendance): AttendanceCounts => ({
@@ -114,6 +122,7 @@ export const countsFrom = (a: Attendance): AttendanceCounts => ({
   weekoff: Number(a.weekoff_days),
   holiday: Number(a.holiday_days),
   short: Number(a.short_leave_days ?? 0),
+  halfLeave: Number(a.half_leave_days ?? 0),
 });
 
 export function payFor(emp: Employee, a: Attendance, rules: PayRules, carry?: Carry): PayResult {

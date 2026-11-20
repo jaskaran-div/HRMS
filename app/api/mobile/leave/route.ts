@@ -21,6 +21,6 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({
     today, leaves: data ?? [], marked: marked ?? [],
-    rules: { short_leave_per_month: r.s.settings.short_leave_per_month, paid_leave_per_month: r.s.settings.paid_leave_per_month },
+    rules: { short_leave_per_month: r.s.settings.short_leave_per_month, paid_leave_per_month: r.s.settings.paid_leave_per_month, half_day_per_month: r.s.settings.half_day_per_month ?? 0 },
   });
 }

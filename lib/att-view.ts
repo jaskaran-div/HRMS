@@ -14,7 +14,7 @@ export const CODE_LABEL: Record<DayCode, string> = {
   P: 'Present', A: 'Absent', W: 'Week off', H: 'Half day', L: 'Paid leave', S: 'Short leave', O: 'Holiday',
 };
 export const CODE_CLS: Record<DayCode, string> = { P: 'p', A: 'a', W: 'w', H: 'h', L: 'l', S: 's', O: 'o' };
-const LEAVE_CODE = { short: 'S', paid: 'L', unpaid: 'A' } as const;
+const LEAVE_CODE = { short: 'S', half: 'H', paid: 'L', unpaid: 'A' } as const;
 
 export type ViewLeave = Pick<LeaveRequest, 'leave_type' | 'start_date' | 'end_date'>;
 

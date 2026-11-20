@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { mobileSession, ymParam } from '@/lib/mobile';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { distanceM, MAX_GPS_ACCURACY_M, todayIST } from '@/lib/geo';
-import { daysInMonth, isOffSaturday } from '@/lib/dates';
-import { checkInStatus, fmtTime, minutesIST, toMinutes, type InStatus } from '@/lib/late';
+import { daysInMonth } from '@/lib/dates';
+import { markDay } from '@/lib/attendance-mark';
+import { decideCheckIn, minutesIST, type CheckInDecision, type DayLeave } from '@/lib/late';
 import type { Punch, Settings } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -20,66 +21,24 @@ export async function GET(req: Request) {
   return NextResponse.json({ punches: (data ?? []) as Punch[] });
 }
 
-const KEY_OF: Record<string, 'present_days' | 'absent_days' | 'weekoff_days' | 'half_days' | 'leave_days' | 'holiday_days' | 'short_leave_days'> = {
-  P: 'present_days', A: 'absent_days', W: 'weekoff_days', H: 'half_days', L: 'leave_days', O: 'holiday_days', S: 'short_leave_days',
-};
-
 /**
- * Marks today in the monthly attendance (same shape the HR grid saves) — P (present), H (half day, late check-in) or
- * S (approved morning short leave) — unless HR already marked the day.
- * Unmarked 2nd / 4th Saturdays are filled as week offs, exactly as the grid does on save, so the totals match.
+ * Applies the office-timing rules (Company & Rules → Office timing) to a check-in happening now: the late allowance,
+ * the morning / second-half check-in windows, and the employee's morning or evening short leave / half day that day
+ * (approved, or still pending).
  */
-async function markDay(employeeId: string, doj: string | null, salary: number, day: string, code: 'P' | 'H' | 'S') {
+async function checkInRule(employeeId: string, day: string, st: Settings): Promise<CheckInDecision> {
   const admin = supabaseAdmin();
-  const month = `${day.slice(0, 7)}-01`;
-  const [y, m] = month.split('-').map(Number);
-  const d = Number(day.slice(8, 10));
-  const { data: row } = await admin.from('attendance').select('*').eq('employee_id', employeeId).eq('month', month).maybeSingle();
-  const daily: Record<string, string> = { ...((row?.daily as Record<string, string> | null) ?? {}) };
-  if (row && !row.daily) return; // HR entered this month as totals only: leave it to HR
-  if (daily[String(d)]) return;
-  daily[String(d)] = code;
-  let first = 1;
-  if (doj) {
-    const [jy, jm, jd] = doj.split('-').map(Number);
-    if (jy === y && jm === m) first = jd;
-  }
-  for (let i = first; i <= daysInMonth(y, m); i++) if (!daily[String(i)] && isOffSaturday(y, m, i)) daily[String(i)] = 'W';
-  const counts = { present_days: 0, absent_days: 0, weekoff_days: 0, half_days: 0, leave_days: 0, holiday_days: 0, short_leave_days: 0 };
-  for (const c of Object.values(daily)) if (KEY_OF[c]) counts[KEY_OF[c]]++;
-  await admin.from('attendance').upsert({
-    employee_id: employeeId, month, salary: Number(row?.salary) || salary || 0,
-    arrears: row?.arrears ?? 0, other_deduction: row?.other_deduction ?? 0, ...counts, daily,
-  }, { onConflict: 'employee_id,month' });
-}
-
-/**
- * Applies the office-timing rule to a check-in happening now (Company & Rules → Office timing).
- * A morning short leave (approved or still pending) on the day excuses coming in late.
- */
-async function lateRule(employeeId: string, day: string, st: Settings): Promise<{ status: InStatus; code: 'P' | 'H' | 'S'; message?: string }> {
-  const admin = supabaseAdmin();
-  const { data: short } = await admin.from('leave_requests').select('status').eq('employee_id', employeeId)
-    .eq('leave_type', 'short').eq('short_session', 'morning').eq('start_date', day).in('status', ['approved', 'pending']);
-  if (short?.length) {
-    const approved = short.some(l => l.status === 'approved');
-    return { status: 'on_time', code: approved ? 'S' : 'P', message: approved ? 'Checked in. Today is your morning short leave.' : undefined };
-  }
-  const { count } = await admin.from('attendance_punches').select('id', { count: 'exact', head: true }).eq('employee_id', employeeId)
-    .eq('in_status', 'late').gte('day', `${day.slice(0, 7)}-01`).lt('day', day);
-  const used = count ?? 0;
-  const allowed = Number(st.late_allowed_per_month ?? 3);
-  const now = minutesIST();
-  const status = checkInStatus(now, st, used);
-  if (status === 'late')
-    return { status, code: 'P', message: `Late check-in (after ${fmtTime(st.office_start_time)}). ${used + 1} of ${allowed} late check-ins allowed this month used.` };
-  if (status === 'half_day') {
-    const afterGrace = now > (toMinutes(st.late_grace_until) ?? 0);
-    return { status, code: 'H', message: afterGrace
-      ? `Late check-in after ${fmtTime(st.late_grace_until)}: today is marked as a half day.`
-      : `Late check-in: your ${allowed} late check-ins for this month are used, so today is marked as a half day.` };
-  }
-  return { status, code: 'P' };
+  const [{ data: leaves }, { count }] = await Promise.all([
+    admin.from('leave_requests').select('leave_type, short_session, status').eq('employee_id', employeeId)
+      .in('leave_type', ['short', 'half']).eq('start_date', day).in('status', ['approved', 'pending']),
+    admin.from('attendance_punches').select('id', { count: 'exact', head: true }).eq('employee_id', employeeId)
+      .eq('in_status', 'late').gte('day', `${day.slice(0, 7)}-01`).lt('day', day),
+  ]);
+  // a half day outweighs a short leave; an approved one outweighs a pending one
+  const l = [...(leaves ?? [])].sort((a, b) => (a.leave_type === 'half' ? -1 : 1) - (b.leave_type === 'half' ? -1 : 1)
+    || (a.status === 'approved' ? -1 : 1) - (b.status === 'approved' ? -1 : 1))[0];
+  const leave: DayLeave | null = l ? { type: l.leave_type, session: l.short_session ?? null, approved: l.status === 'approved' } : null;
+  return decideCheckIn(minutesIST(), st, count ?? 0, leave);
 }
 
 /**
@@ -119,7 +78,8 @@ export async function POST(req: Request) {
   let message: string | undefined;
   if (b.action === 'in') {
     if (existing) return NextResponse.json({ error: 'You have already checked in today.', punch: existing }, { status: 409 });
-    const late = await lateRule(me.id, day, st);
+    const late = await checkInRule(me.id, day, st);
+    if (!late.ok) return NextResponse.json({ error: late.error }, { status: 400 });
     const { data, error } = await admin.from('attendance_punches').insert({
       employee_id: me.id, day, in_at: now, in_lat: fix.lat, in_lng: fix.lng, in_accuracy_m: fix.accuracy_m, in_distance_m: fix.distance_m, created_by: profile.id,
       in_status: late.status,
