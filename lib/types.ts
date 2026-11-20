@@ -61,6 +61,19 @@ export interface Settings {
   checkin_extra_min?: number | null;
   /** Half-day leaves a month paid in full; the rest cost half a day's pay. */
   half_day_per_month?: number | null;
+  /** Regular end of the working day (a shift's check-out deadline moves with its end time). */
+  office_end_time?: string | null;
+  /** Check-out is allowed until this; checked in but not out by then = Half day. */
+  checkout_by?: string | null;
+}
+
+/** A work shift: its employees get every check-in / check-out window moved with it. */
+export interface Shift {
+  id: string;
+  org_id: string;
+  name: string;
+  start_time: string; // 'HH:MM:SS'
+  end_time: string;
 }
 
 /** One day's mobile check-in / check-out. */
@@ -76,6 +89,8 @@ export interface Punch {
   out_accuracy_m: number | null;
   /** What the check-in time counted as (null = before the late rule existed). */
   in_status?: 'on_time' | 'late' | 'half_day' | null;
+  /** Not checked out by the check-out deadline: the day became a Half day. */
+  out_missed?: boolean;
 }
 
 export interface Employee {
@@ -104,6 +119,8 @@ export interface Employee {
   tds_amount: number;
   extra: Record<string, string>;
   team_lead_id: string | null;
+  /** Work shift (null = the company office timing). */
+  shift_id?: string | null;
   archived_at: string | null;
 }
 

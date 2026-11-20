@@ -496,3 +496,31 @@ alter table public.leave_requests drop constraint if exists leave_requests_reque
 alter table public.leave_requests add constraint leave_requests_requested_type_check check (requested_type in ('short', 'half', 'paid', 'unpaid'));
 -- Half days (H) in the month that are approved half-day leave (paid within half_day_per_month); other H = half pay
 alter table public.attendance add column if not exists half_leave_days numeric(4,1) not null default 0;
+
+-- Check-out: mandatory. Allowed until checkout_by; checked in but not checked out by then = the day becomes a Half day.
+-- office_end_time is the company's regular end (a shift's check-out deadline moves with its end time).
+alter table public.settings add column if not exists office_end_time time default '19:00';
+alter table public.settings add column if not exists checkout_by time default '20:00';
+alter table public.attendance_punches add column if not exists out_missed boolean not null default false;
+
+-- Shifts: an employee on a shift gets every check-in / check-out window moved with the shift
+-- (same offsets as the company office timing). No shift = the company office timing.
+create table if not exists public.shifts (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid references public.organizations (id) on delete cascade,
+  name text not null,
+  start_time time not null,
+  end_time time not null,
+  created_at timestamptz not null default now(),
+  check (end_time > start_time)
+);
+create index if not exists shifts_org_idx on public.shifts (org_id);
+drop trigger if exists shifts_org on public.shifts;
+create trigger shifts_org before insert or update on public.shifts for each row execute function public.set_org_id('caller');
+alter table public.shifts enable row level security;
+drop policy if exists shifts_read on public.shifts;
+create policy shifts_read on public.shifts for select to authenticated using (org_id = public.current_org_id() and public.can_read());
+drop policy if exists shifts_write on public.shifts;
+create policy shifts_write on public.shifts for all to authenticated
+  using (org_id = public.current_org_id() and public.is_admin()) with check (org_id = public.current_org_id() and public.is_admin());
+alter table public.employees add column if not exists shift_id uuid references public.shifts (id) on delete set null;

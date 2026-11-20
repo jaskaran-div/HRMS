@@ -33,19 +33,19 @@ export default function LeavesPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const month = monthStart(ym);
 
-  const { data = [], loading, error, reload } = useLoad(async () => {
+  // the month's requests and every open request (whatever the month), loaded together
+  const { data: both, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
     const next = shiftMonth(month, 1);
-    return fetchAll<Row>((a, b) => sb.from('leave_requests').select('*, employees(name, emp_code, department)')
-      .lt('start_date', next).gte('end_date', month).order('start_date', { ascending: false }).range(a, b));
+    const [rows, pending] = await Promise.all([
+      fetchAll<Row>((a, b) => sb.from('leave_requests').select('*, employees(name, emp_code, department)')
+        .lt('start_date', next).gte('end_date', month).order('start_date', { ascending: false }).range(a, b)),
+      sb.from('leave_requests').select('*, employees(name, emp_code, department)').eq('status', 'pending').order('start_date').limit(300),
+    ]);
+    return { rows, open: (pending.data ?? []) as Row[] };
   }, [month]);
-
-  // every open request, whatever the month
-  const { data: open = [] } = useLoad(async () => {
-    const { data } = await supabaseBrowser().from('leave_requests').select('*, employees(name, emp_code, department)')
-      .eq('status', 'pending').order('start_date').limit(300);
-    return (data ?? []) as Row[];
-  }, [data]);
+  const data = useMemo(() => both?.rows ?? [], [both]);
+  const open = both?.open ?? [];
   const forHr = open.filter(FILTERS.pending.test);
 
   const list = useMemo(() => data.filter(l => FILTERS[filter].test(l) &&

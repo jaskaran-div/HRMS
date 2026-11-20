@@ -10,7 +10,7 @@ import { rowsFromWorkbook, type SheetRow } from '../lib/sheet';
 import { availableTypes, canDecideStep, decidedBy, overallStatus, leaveTitle, quotaFor, stageText, validateLeave, workingDays } from '../lib/leave';
 import { employedIn } from '../lib/exit';
 import { countDays, monthDays } from '../lib/att-view';
-import { checkInStatus, decideCheckIn, fmtTime, minutesIST, toMinutes } from '../lib/late';
+import { checkInStatus, decideCheckIn, decideCheckOut, fmtTime, minutesIST, toMinutes, windows } from '../lib/late';
 
 let passed = 0;
 const test = (name: string, fn: () => void) => {
@@ -490,6 +490,29 @@ test('half-day leave: morning / evening required, half a day, paid within the mo
   assert.equal(p.halfPaid, 1); assert.equal(p.paidDays, 29.5);
   const none = computePay({ salary: 30000, arrears: 0, otherDeduction: 0, pf: 0, tds: 0, att, daysInMonth: 30 }, rules(0));
   assert.equal(none.halfPaid, 0); assert.equal(none.paidDays, 29);
+});
+
+test('shifts move every window; check-out deadline follows the shift end', () => {
+  const S = {
+    office_start_time: '10:00', late_grace_until: '10:30', late_allowed_per_month: 3, checkin_close_time: '11:00',
+    second_half_start: '14:00', morning_short_back: '12:30', checkin_extra_min: 60, office_end_time: '19:00', checkout_by: '20:00',
+  };
+  const at = (t: string) => toMinutes(t)!;
+  assert.equal(windows(S)!.checkoutBy, at('20:00'));
+  const w = windows(S, { start_time: '14:00:00', end_time: '23:00:00' })!;
+  assert.equal(w.start, at('14:00')); assert.equal(w.grace, at('14:30')); assert.equal(w.close, at('15:00'));
+  assert.equal(w.second, at('18:00')); assert.equal(w.deadline, at('19:00')); assert.equal(w.shortUntil, at('17:30'));
+  assert.equal(w.checkoutBy, at('23:59')); // 23:00 + 1 h, capped at the end of the day
+  const shift = { start_time: '14:00', end_time: '22:00' };
+  const code = (d: ReturnType<typeof decideCheckIn>) => (d.ok ? d.code : 'blocked');
+  assert.equal(code(decideCheckIn(at('14:20'), S, 0, null, shift)), 'P');
+  assert.equal(code(decideCheckIn(at('15:30'), S, 0, null, shift)), 'blocked');
+  assert.equal(code(decideCheckIn(at('18:30'), S, 0, null, shift)), 'H');
+  assert.equal(decideCheckOut(at('19:59'), S).ok, true);
+  assert.equal(decideCheckOut(at('20:01'), S).ok, false);
+  assert.equal(decideCheckOut(at('22:30'), S, shift).ok, true); // shift ends 22:00 -> check out by 23:00
+  assert.equal(decideCheckOut(at('23:01'), S, shift).ok, false);
+  assert.equal(decideCheckOut(at('23:30'), { ...S, checkout_by: null }).ok, true); // no check-out rule
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

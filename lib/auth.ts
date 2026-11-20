@@ -41,12 +41,13 @@ export async function guard(roles?: Role[], opts: GuardOptions = {}): Promise<Gu
   const admin = supabaseAdmin();
   const [{ data: profile }, { data: membership }] = await Promise.all([
     admin.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-    admin.from('memberships').select('org_id, role, status').eq('user_id', user.id).maybeSingle(),
+    // the organization comes along with the membership: one round trip to the database less on every call
+    admin.from('memberships').select('org_id, role, status, organizations(*)').eq('user_id', user.id).maybeSingle(),
   ]);
   if (!profile || !profile.active) return fail('Account disabled', 403, 'disabled');
   if (!membership || membership.status !== 'active' || membership.org_id !== profile.org_id)
     return fail('Your login is not part of an active organization.', 403, 'no_membership');
-  const org = await loadOrg(membership.org_id);
+  const org = (membership.organizations as unknown as Org | null) ?? await loadOrg(membership.org_id);
   if (!org) return fail('Organization not found.', 403, 'no_membership');
   if (!org.email_verified_at) return fail('Verify your email address first.', 403, 'email_unverified');
   if (!opts.allowLocked && !orgHasAccess(org))

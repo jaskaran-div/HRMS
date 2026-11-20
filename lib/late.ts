@@ -26,25 +26,56 @@ export function fmtTime(t: string | number | null | undefined): string {
 }
 
 export type LateRules = Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month'>
-  & Partial<Pick<Settings, 'checkin_close_time' | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min'>>;
+  & Partial<Pick<Settings, 'checkin_close_time' | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'office_end_time' | 'checkout_by'>>;
 
-/** The day's windows in minutes after midnight, or null when there is no office timing rule. */
-export function windows(s: LateRules) {
-  const start = toMinutes(s.office_start_time);
-  if (start == null) return null;
-  const grace = Math.max(start, toMinutes(s.late_grace_until) ?? start);
-  const close = Math.max(grace, toMinutes(s.checkin_close_time) ?? grace);
+/** An employee's shift ('HH:MM[:SS]'); null = the company office timing. */
+export type ShiftTimes = { start_time: string; end_time: string } | null | undefined;
+
+const LAST_MINUTE = 23 * 60 + 59;
+
+/**
+ * The day's windows in minutes after midnight, or null when there is no office timing rule.
+ * With a shift, every check-in window keeps its distance from the office start time but starts from the shift start,
+ * and the check-out deadline keeps its distance from the office end time but follows the shift end.
+ */
+export function windows(s: LateRules, shift?: ShiftTimes) {
+  const officeStart = toMinutes(s.office_start_time);
+  if (officeStart == null) return null;
+  const shiftStart = toMinutes(shift?.start_time);
+  const move = shiftStart == null ? 0 : shiftStart - officeStart;
+  const at = (t: number) => Math.min(LAST_MINUTE, Math.max(0, t + move));
+  const start = at(officeStart);
+  const grace = Math.max(start, at(toMinutes(s.late_grace_until) ?? officeStart));
+  const close = Math.max(grace, at(toMinutes(s.checkin_close_time) ?? officeStart));
   const extra = Math.max(0, Number(s.checkin_extra_min ?? 60));
-  const second = Math.max(close, toMinutes(s.second_half_start) ?? close);
+  const second = Math.max(close, at(toMinutes(s.second_half_start) ?? officeStart));
   const shortBack = toMinutes(s.morning_short_back);
+
+  const officeEnd = toMinutes(s.office_end_time);
+  const outBy = toMinutes(s.checkout_by);
+  const shiftEnd = toMinutes(shift?.end_time);
+  const end = shiftEnd ?? officeEnd;
+  // check-out deadline: the same distance after the (shift) end as checkout_by is after the office end
+  const checkoutBy = outBy == null ? null
+    : Math.min(LAST_MINUTE, shiftEnd != null && officeEnd != null ? shiftEnd + Math.max(0, outBy - officeEnd) : outBy + move);
   return {
-    start, grace, close, second, extra,
+    start, grace, close, second, extra, end,
     /** nobody checked in by now = Absent */
-    deadline: second + extra,
+    deadline: Math.min(LAST_MINUTE, second + extra),
     /** morning short leave: check in by this */
-    shortUntil: shortBack == null ? close : Math.max(close, shortBack + extra),
+    shortUntil: shortBack == null ? close : Math.max(close, at(shortBack) + extra),
     allowed: Number(s.late_allowed_per_month ?? 3),
+    /** check-out allowed until this; checked in but not out by then = Half day (null = no check-out rule) */
+    checkoutBy,
   };
+}
+
+/** Check-out now: allowed until the check-out deadline. */
+export function decideCheckOut(now: number, s: LateRules, shift?: ShiftTimes): { ok: true } | { ok: false; error: string } {
+  const w = windows(s, shift);
+  if (w?.checkoutBy != null && now > w.checkoutBy)
+    return { ok: false, error: `Check-out closed at ${fmtTime(w.checkoutBy)}. You did not check out in time, so today counts as a half day.` };
+  return { ok: true };
 }
 
 /**
@@ -74,8 +105,8 @@ export type CheckInDecision =
  *  Morning half day:    check in by second half + extra (Half day), else closed (Absent)
  *  Evening short leave / half day: normal morning rules; an approved one marks the day S / H.
  */
-export function decideCheckIn(now: number, s: LateRules, lateUsed: number, leave?: DayLeave | null): CheckInDecision {
-  const w = windows(s);
+export function decideCheckIn(now: number, s: LateRules, lateUsed: number, leave?: DayLeave | null, shift?: ShiftTimes): CheckInDecision {
+  const w = windows(s, shift);
   const morning = leave?.session === 'morning';
   const adjust = (code: 'P' | 'H' | 'S'): 'P' | 'H' | 'S' => {
     if (!leave?.approved || code === 'H') return code;

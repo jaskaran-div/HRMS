@@ -523,3 +523,8 @@ aside:hover::-webkit-scrollbar-thumb{background-color:#dde3ed}
 .rule-sum>div{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 0;font-size:13px}
 .rule-sum>div+div{border-top:1px solid var(--line-2)}
 .rule-sum .t{min-width:170px;font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.shift-list{max-height:min(52vh,420px);overflow:auto;border:1px solid var(--line-2);border-radius:var(--r-sm)}
+.shift-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line-2);cursor:pointer;font-size:13.5px}
+.shift-row:last-child{border-bottom:0}
+.shift-row:hover{background:var(--soft-2)}
+.shift-row>span:nth-child(2){flex:1;min-width:0}

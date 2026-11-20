@@ -57,7 +57,7 @@ export default function CheckinsPage() {
                     <td>{r.employees?.department ?? '—'}</td>
                     <td>{time(r.in_at)}</td>
                     <td>{r.in_status ? <span className={`pill ${STATUS[r.in_status][0]}`}>{STATUS[r.in_status][1]}</span> : <span className="muted">—</span>}</td>
-                    <td>{time(r.out_at)}</td>
+                    <td>{r.out_missed && !r.out_at ? <span className="pill bad" title="Did not check out in time: the day became a half day">Missed · Half day</span> : time(r.out_at)}</td>
                     <td>{hours(r.in_at, r.out_at)}</td>
                     <td className="n">{r.in_distance_m != null ? `${Math.round(Number(r.in_distance_m))} m` : '—'}</td>
                     <td className="n">{r.in_accuracy_m != null ? `${Math.round(Number(r.in_accuracy_m))} m` : '—'}</td>

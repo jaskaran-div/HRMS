@@ -21,7 +21,7 @@ function withContact<T extends { email?: string | null; phone?: string | null; e
 /** Columns a team leader may see about the people in their team (no bank, PAN, salary or emergency details). */
 export const TEAM_COLUMNS = 'id, emp_code, name, department, designation, email, phone, doj, location, team_lead_id, archived_at';
 /** Columns an employee sees about themselves. */
-export const SELF_COLUMNS = 'id, emp_code, name, department, designation, email, phone, emergency_name, emergency_phone, doj, dob, location, manager, bank_name, account_no, ifsc, pan, pf_no, monthly_salary, team_lead_id, archived_at';
+export const SELF_COLUMNS = 'id, emp_code, name, department, designation, email, phone, emergency_name, emergency_phone, doj, dob, location, manager, bank_name, account_no, ifsc, pan, pf_no, monthly_salary, team_lead_id, shift_id, archived_at';
 
 export type TeamMember = Pick<Employee, 'id' | 'emp_code' | 'name' | 'department' | 'designation' | 'email' | 'phone' | 'doj' | 'location' | 'team_lead_id' | 'archived_at'>;
 export type SelfRecord = Omit<Employee, 'extra' | 'exit_type' | 'exit_remarks' | 'pf_amount' | 'tds_amount'>;
@@ -43,10 +43,11 @@ export const portalSession = cache(async (): Promise<PortalSession> => {
   const admin = supabaseAdmin();
   const [{ data: profile }, { data: membership }] = await Promise.all([
     admin.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-    admin.from('memberships').select('org_id, role, status').eq('user_id', user.id).maybeSingle(),
+    admin.from('memberships').select('org_id, role, status, organizations(*)').eq('user_id', user.id).maybeSingle(),
   ]);
   if (!profile || !profile.active || !membership || membership.status !== 'active') redirect('/api/logout');
-  const org = await orgById(membership.org_id);
+  // (the database is far from the server: every query saved here makes every portal page faster)
+  const org = (membership.organizations as unknown as Org | null) ?? await orgById(membership.org_id);
   if (!org) redirect('/api/logout');
   if (!org.email_verified_at) redirect('/verify-email');
   if (!orgHasAccess(org)) redirect('/locked');
@@ -55,13 +56,13 @@ export const portalSession = cache(async (): Promise<PortalSession> => {
 
   const [{ data: settings }, { data: me }] = await Promise.all([
     admin.from('settings').select('*').eq('org_id', org.id).single(),
-    p.employee_id ? admin.from('employees').select(`${SELF_COLUMNS}, extra`).eq('id', p.employee_id).maybeSingle() : Promise.resolve({ data: null }),
+    p.employee_id
+      ? admin.from('employees').select(`${SELF_COLUMNS}, extra, lead:team_lead_id(${TEAM_COLUMNS}, extra)`).eq('id', p.employee_id).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   if (!settings) throw new Error('Settings row missing. Did you run supabase/saas.sql?');
-  const self = withContact(me as (SelfRecord & { extra: Record<string, string> }) | null) as SelfRecord | null;
-  const { data: lead } = self?.team_lead_id
-    ? await admin.from('employees').select(`${TEAM_COLUMNS}, extra`).eq('id', self.team_lead_id).maybeSingle()
-    : { data: null };
+  const { lead, ...meRow } = (me ?? { lead: null }) as { lead?: unknown } & Record<string, unknown>;
+  const self = me ? withContact(meRow as unknown as SelfRecord & { extra: Record<string, string> }) as SelfRecord | null : null;
   return { org, profile: p, settings: settings as Settings, me: self, lead: withContact(lead as (TeamMember & { extra: Record<string, string> }) | null) as TeamMember | null, isLead: p.role === 'team_lead' };
 });
 
@@ -72,12 +73,12 @@ export async function teamIds(leadEmployeeId: string): Promise<string[]> {
   return ((data ?? []) as (string | { team_tree: string })[]).map(x => (typeof x === 'string' ? x : x.team_tree));
 }
 
-/** Active members of the logged-in team leader's team (empty for non-leads). */
-export async function myTeam(s: PortalSession): Promise<TeamMember[]> {
+/** Active members of the logged-in team leader's team (empty for non-leads). Once per request (layout + page). */
+export const myTeam = cache(async (s: PortalSession): Promise<TeamMember[]> => {
   if (!s.isLead || !s.me) return [];
   const ids = await teamIds(s.me.id);
   if (!ids.length) return [];
   const { data, error } = await supabaseAdmin().from('employees').select(`${TEAM_COLUMNS}, extra`).in('id', ids).is('archived_at', null).order('name');
   if (error) throw new Error(error.message);
   return ((data ?? []) as (TeamMember & { extra: Record<string, string> })[]).map(r => withContact(r) as TeamMember);
-}
+});

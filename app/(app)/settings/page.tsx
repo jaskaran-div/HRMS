@@ -7,6 +7,7 @@ import { supabaseBrowser } from '@/lib/supabase/client';
 import { num } from '@/lib/format';
 import { fmtTime, toMinutes, windows } from '@/lib/late';
 import { TimePicker } from '@/components/TimePicker';
+import { ShiftsCard } from '@/components/ShiftsCard';
 
 export default function SettingsPage() {
   const { settings, isAdmin, notify } = useApp();
@@ -24,6 +25,7 @@ export default function SettingsPage() {
     checkin_close_time: (settings.checkin_close_time ?? '11:00').slice(0, 5), second_half_start: (settings.second_half_start ?? '14:00').slice(0, 5),
     morning_short_back: (settings.morning_short_back ?? '12:30').slice(0, 5), checkin_extra_min: String(settings.checkin_extra_min ?? 60),
     half_day_per_month: String(settings.half_day_per_month ?? 0),
+    office_end_time: (settings.office_end_time ?? '19:00').slice(0, 5), checkout_by: (settings.checkout_by ?? '').slice(0, 5),
   });
   const [locating, setLocating] = useState(false);
 
@@ -101,6 +103,10 @@ export default function SettingsPage() {
       if (second < close) { notify('The second half cannot start before morning check-in closes.', 'err'); return; }
       if (shortBack < start) { notify('The morning short leave return time cannot be before the office start time.', 'err'); return; }
     }
+    const officeEnd = toMinutes(f.office_end_time), outBy = toMinutes(f.checkout_by);
+    if (start != null && officeEnd == null) { notify('Pick the office end time.', 'err'); return; }
+    if (start != null && officeEnd != null && officeEnd <= start) { notify('The office end time must be after the start time.', 'err'); return; }
+    if (outBy != null && officeEnd != null && outBy < officeEnd) { notify('"Check out by" cannot be before the office end time.', 'err'); return; }
     if (extra < 0 || extra > 240) { notify('The check-in allowance must be between 0 and 240 minutes.', 'err'); return; }
     if (num(f.half_day_per_month) < 0) { notify('Paid half days per month cannot be negative.', 'err'); return; }
     setBusy(true);
@@ -111,6 +117,7 @@ export default function SettingsPage() {
       checkin_close_time: close != null ? f.checkin_close_time : null, second_half_start: second != null ? f.second_half_start : null,
       morning_short_back: shortBack != null ? f.morning_short_back : null, checkin_extra_min: extra,
       half_day_per_month: num(f.half_day_per_month),
+      office_end_time: officeEnd != null ? f.office_end_time : null, checkout_by: outBy != null ? f.checkout_by : null,
       company_name: f.company_name.trim(), company_address: f.company_address.trim(), footer_note: f.footer_note.trim(), logo,
       paid_leave_per_month: num(f.paid_leave_per_month),
       short_leave_per_month: Math.round(num(f.short_leave_per_month)), hr_email: f.hr_email.trim() || null, basic_pct: num(f.basic_pct), hra_pct: num(f.hra_pct), conveyance_pct: num(f.conveyance_pct),
@@ -122,6 +129,7 @@ export default function SettingsPage() {
   }
 
   return (
+    <>
     <form onSubmit={save}>
       <div className="card">
         <h3>Company (printed on every payslip)</h3>
@@ -201,6 +209,14 @@ export default function SettingsPage() {
             <TimePicker value={f.morning_short_back} disabled={!f.office_start_time} onChange={v => setF(x => ({ ...x, morning_short_back: v }))} />
             <span className="hint">When an employee on a morning short leave is due.</span>
           </div>
+          <div className="lbl">Office end time
+            <TimePicker value={f.office_end_time} disabled={!f.office_start_time} onChange={v => setF(x => ({ ...x, office_end_time: v }))} />
+            <span className="hint">The regular end of the day.</span>
+          </div>
+          <div className="lbl">Check out by
+            <TimePicker value={f.checkout_by} clearable placeholder="Check-out not required" disabled={!f.office_start_time} onChange={v => setF(x => ({ ...x, checkout_by: v }))} />
+            <span className="hint">Check-out is mandatory and allowed until this. Not checked out by then = Half day.</span>
+          </div>
           <label>Extra check-in allowance (minutes)
             <input type="number" min={0} max={240} step={5} value={f.checkin_extra_min} onChange={set('checkin_extra_min')} disabled={!f.office_start_time} />
             <span className="hint">Added after the second half start and the short leave return time.</span>
@@ -211,6 +227,7 @@ export default function SettingsPage() {
             office_start_time: f.office_start_time || null, late_grace_until: f.late_grace_until || null,
             late_allowed_per_month: Math.max(0, Math.round(num(f.late_allowed_per_month))), checkin_close_time: f.checkin_close_time || null,
             second_half_start: f.second_half_start || null, morning_short_back: f.morning_short_back || null, checkin_extra_min: Math.round(num(f.checkin_extra_min)),
+            office_end_time: f.office_end_time || null, checkout_by: f.checkout_by || null,
           });
           if (!w) return null;
           const n = w.allowed;
@@ -226,6 +243,7 @@ export default function SettingsPage() {
               <div><span className="t">Not checked in by {fmtTime(w.deadline)}</span><span className="pill bad">Absent</span></div>
               <div><span className="t">Morning short leave</span><span className="pill blue">Short leave</span><span className="muted small">if checked in by {fmtTime(w.shortUntil)}</span></div>
               <div><span className="t">Morning half day</span><span className="pill bad">Half day</span><span className="muted small">if checked in by {fmtTime(w.deadline)}</span></div>
+              {w.checkoutBy != null && <div><span className="t">Not checked out by {fmtTime(w.checkoutBy)}</span><span className="pill bad">Half day</span><span className="muted small">check-out closes then</span></div>}
             </div>
           );
         })()}
@@ -254,5 +272,7 @@ export default function SettingsPage() {
         <button className="btn primary" style={{ marginTop: 14 }} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
     </form>
+    <ShiftsCard />
+    </>
   );
 }

@@ -11,7 +11,21 @@ const KEY_OF: Record<string, CountKey> = {
  * already marked that day (or entered the month as totals only). Unmarked 2nd / 4th Saturdays are filled as week offs,
  * exactly as the grid does on save, so the totals match. Returns whether the day was marked.
  */
-export async function markDay(employeeId: string, doj: string | null, salary: number, day: string, code: 'P' | 'H' | 'S' | 'A'): Promise<boolean> {
+export function markDay(employeeId: string, doj: string | null, salary: number, day: string, code: 'P' | 'H' | 'S' | 'A'): Promise<boolean> {
+  return writeDay(employeeId, doj, salary, day, code, cur => !cur);
+}
+
+/**
+ * Checked in but did not check out in time: the day becomes a Half day — only when it is still what a check-in marks
+ * (Present / Short leave). Anything HR set by hand stays.
+ */
+export function downgradeToHalf(employeeId: string, doj: string | null, salary: number, day: string): Promise<boolean> {
+  return writeDay(employeeId, doj, salary, day, 'H', cur => cur === 'P' || cur === 'S');
+}
+
+async function writeDay(
+  employeeId: string, doj: string | null, salary: number, day: string, code: string, may: (cur: string | undefined) => boolean,
+): Promise<boolean> {
   const admin = supabaseAdmin();
   const month = `${day.slice(0, 7)}-01`;
   const [y, m] = month.split('-').map(Number);
@@ -19,7 +33,7 @@ export async function markDay(employeeId: string, doj: string | null, salary: nu
   const { data: row } = await admin.from('attendance').select('*').eq('employee_id', employeeId).eq('month', month).maybeSingle();
   if (row && !row.daily) return false; // HR entered this month as totals only: leave it to HR
   const daily: Record<string, string> = { ...((row?.daily as Record<string, string> | null) ?? {}) };
-  if (daily[String(d)]) return false;
+  if (!may(daily[String(d)])) return false;
   daily[String(d)] = code;
   let first = 1;
   if (doj) {

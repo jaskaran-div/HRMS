@@ -19,14 +19,14 @@ export const webSession = cache(async (): Promise<WebSession> => {
   const admin = supabaseAdmin();
   const [{ data: profile }, { data: m }, platformAdmin] = await Promise.all([
     admin.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-    admin.from('memberships').select('org_id, role, status').eq('user_id', user.id).maybeSingle(),
+    admin.from('memberships').select('org_id, role, status, organizations(*)').eq('user_id', user.id).maybeSingle(),
     isPlatformAdmin(user.id),
   ]);
   if (!profile || !profile.active || !m || m.status !== 'active') {
     if (platformAdmin) redirect('/admin');
     redirect('/api/logout');
   }
-  const org = await orgById(m.org_id);
+  const org = (m.organizations as unknown as Org | null) ?? await orgById(m.org_id);
   if (!org) redirect('/api/logout');
   if (!org.email_verified_at) redirect('/verify-email');
   return { user, profile: { ...(profile as Profile), role: m.role as Role }, org, platformAdmin };
