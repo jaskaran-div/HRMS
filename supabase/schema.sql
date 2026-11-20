@@ -466,3 +466,15 @@ create table if not exists public.notifications (
 );
 create index if not exists notifications_user_idx on public.notifications (user_id, created_at desc);
 alter table public.notifications enable row level security;
+
+-- Office timing: check-in after office_start_time is late. Late up to late_grace_until is still Present for the first
+-- late_allowed_per_month times a month; after that (or after late_grace_until) the check-in marks a Half day.
+-- office_start_time null = no late rule (every check-in is Present).
+alter table public.settings add column if not exists office_start_time time default '10:00';
+alter table public.settings add column if not exists late_grace_until time default '10:30';
+alter table public.settings add column if not exists late_allowed_per_month int not null default 3 check (late_allowed_per_month between 0 and 31);
+-- what the check-in time counted as: on_time | late (within the allowance, Present) | half_day
+alter table public.attendance_punches add column if not exists in_status text check (in_status in ('on_time', 'late', 'half_day'));
+
+-- Short leave is taken in the morning (come in late) or the evening (leave early)
+alter table public.leave_requests add column if not exists short_session text check (short_session in ('morning', 'evening'));

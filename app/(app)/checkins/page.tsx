@@ -12,6 +12,10 @@ type Row = Punch & { employees: { name: string; emp_code: string; department: st
 const time = (iso: string | null) =>
   iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '—';
 
+const STATUS: Record<string, [string, string]> = {
+  on_time: ['ok', 'On time'], late: ['warn', 'Late · Present'], half_day: ['bad', 'Late · Half day'],
+};
+
 function hours(a: string, b: string | null) {
   if (!b) return '—';
   const m = Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000));
@@ -45,24 +49,25 @@ export default function CheckinsPage() {
           <h3>Mobile app check-ins</h3>
           <div className="tbl-wrap">
             <table>
-              <thead><tr><th>Employee</th><th>Department</th><th>Check in</th><th>Check out</th><th>Time at work</th><th className="n">Distance in</th><th className="n">GPS ±</th></tr></thead>
+              <thead><tr><th>Employee</th><th>Department</th><th>Check in</th><th>Status</th><th>Check out</th><th>Time at work</th><th className="n">Distance in</th><th className="n">GPS ±</th></tr></thead>
               <tbody>
                 {list.map(r => (
                   <tr key={r.id}>
                     <td><b>{r.employees?.name ?? '—'}</b> <span className="muted small">{r.employees?.emp_code}</span></td>
                     <td>{r.employees?.department ?? '—'}</td>
                     <td>{time(r.in_at)}</td>
+                    <td>{r.in_status ? <span className={`pill ${STATUS[r.in_status][0]}`}>{STATUS[r.in_status][1]}</span> : <span className="muted">—</span>}</td>
                     <td>{time(r.out_at)}</td>
                     <td>{hours(r.in_at, r.out_at)}</td>
                     <td className="n">{r.in_distance_m != null ? `${Math.round(Number(r.in_distance_m))} m` : '—'}</td>
                     <td className="n">{r.in_accuracy_m != null ? `${Math.round(Number(r.in_accuracy_m))} m` : '—'}</td>
                   </tr>
                 ))}
-                {!list.length && !loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 26 }}>Nobody checked in from the app on this day.</td></tr>}
+                {!list.length && !loading && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: 26 }}>Nobody checked in from the app on this day.</td></tr>}
               </tbody>
             </table>
           </div>
-          <p className="muted small" style={{ marginBottom: 0 }}>A check-in marks the day Present in Attendance automatically (unless HR had already marked that day). Office location and radius: Company &amp; Rules.</p>
+          <p className="muted small" style={{ marginBottom: 0 }}>A check-in marks the day in Attendance automatically — Present, or Half day for a late check-in under the office timing rule (unless HR had already marked that day). Office timing, location and radius: Company &amp; Rules.</p>
         </div>
       )}
     </>

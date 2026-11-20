@@ -3,7 +3,8 @@ import { mobileSession, ymParam } from '@/lib/mobile';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { distanceM, MAX_GPS_ACCURACY_M, todayIST } from '@/lib/geo';
 import { daysInMonth, isOffSaturday } from '@/lib/dates';
-import type { Punch } from '@/lib/types';
+import { checkInStatus, fmtTime, minutesIST, toMinutes, type InStatus } from '@/lib/late';
+import type { Punch, Settings } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,10 +25,11 @@ const KEY_OF: Record<string, 'present_days' | 'absent_days' | 'weekoff_days' | '
 };
 
 /**
- * Marks today Present in the monthly attendance (same shape the HR grid saves), unless HR already marked the day.
+ * Marks today in the monthly attendance (same shape the HR grid saves) — P (present), H (half day, late check-in) or
+ * S (approved morning short leave) — unless HR already marked the day.
  * Unmarked 2nd / 4th Saturdays are filled as week offs, exactly as the grid does on save, so the totals match.
  */
-async function markPresent(employeeId: string, doj: string | null, salary: number, day: string) {
+async function markDay(employeeId: string, doj: string | null, salary: number, day: string, code: 'P' | 'H' | 'S') {
   const admin = supabaseAdmin();
   const month = `${day.slice(0, 7)}-01`;
   const [y, m] = month.split('-').map(Number);
@@ -36,7 +38,7 @@ async function markPresent(employeeId: string, doj: string | null, salary: numbe
   const daily: Record<string, string> = { ...((row?.daily as Record<string, string> | null) ?? {}) };
   if (row && !row.daily) return; // HR entered this month as totals only: leave it to HR
   if (daily[String(d)]) return;
-  daily[String(d)] = 'P';
+  daily[String(d)] = code;
   let first = 1;
   if (doj) {
     const [jy, jm, jd] = doj.split('-').map(Number);
@@ -49,6 +51,35 @@ async function markPresent(employeeId: string, doj: string | null, salary: numbe
     employee_id: employeeId, month, salary: Number(row?.salary) || salary || 0,
     arrears: row?.arrears ?? 0, other_deduction: row?.other_deduction ?? 0, ...counts, daily,
   }, { onConflict: 'employee_id,month' });
+}
+
+/**
+ * Applies the office-timing rule to a check-in happening now (Company & Rules → Office timing).
+ * A morning short leave (approved or still pending) on the day excuses coming in late.
+ */
+async function lateRule(employeeId: string, day: string, st: Settings): Promise<{ status: InStatus; code: 'P' | 'H' | 'S'; message?: string }> {
+  const admin = supabaseAdmin();
+  const { data: short } = await admin.from('leave_requests').select('status').eq('employee_id', employeeId)
+    .eq('leave_type', 'short').eq('short_session', 'morning').eq('start_date', day).in('status', ['approved', 'pending']);
+  if (short?.length) {
+    const approved = short.some(l => l.status === 'approved');
+    return { status: 'on_time', code: approved ? 'S' : 'P', message: approved ? 'Checked in. Today is your morning short leave.' : undefined };
+  }
+  const { count } = await admin.from('attendance_punches').select('id', { count: 'exact', head: true }).eq('employee_id', employeeId)
+    .eq('in_status', 'late').gte('day', `${day.slice(0, 7)}-01`).lt('day', day);
+  const used = count ?? 0;
+  const allowed = Number(st.late_allowed_per_month ?? 3);
+  const now = minutesIST();
+  const status = checkInStatus(now, st, used);
+  if (status === 'late')
+    return { status, code: 'P', message: `Late check-in (after ${fmtTime(st.office_start_time)}). ${used + 1} of ${allowed} late check-ins allowed this month used.` };
+  if (status === 'half_day') {
+    const afterGrace = now > (toMinutes(st.late_grace_until) ?? 0);
+    return { status, code: 'H', message: afterGrace
+      ? `Late check-in after ${fmtTime(st.late_grace_until)}: today is marked as a half day.`
+      : `Late check-in: your ${allowed} late check-ins for this month are used, so today is marked as a half day.` };
+  }
+  return { status, code: 'P' };
 }
 
 /**
@@ -85,17 +116,21 @@ export async function POST(req: Request) {
   const fix = { lat, lng, accuracy_m: Math.round(acc * 10) / 10, distance_m: Math.round(dist * 10) / 10 };
 
   let punch: Punch;
+  let message: string | undefined;
   if (b.action === 'in') {
     if (existing) return NextResponse.json({ error: 'You have already checked in today.', punch: existing }, { status: 409 });
+    const late = await lateRule(me.id, day, st);
     const { data, error } = await admin.from('attendance_punches').insert({
       employee_id: me.id, day, in_at: now, in_lat: fix.lat, in_lng: fix.lng, in_accuracy_m: fix.accuracy_m, in_distance_m: fix.distance_m, created_by: profile.id,
+      in_status: late.status,
     }).select('*').single();
     if (error || !data) {
       if (error?.code === '23505') return NextResponse.json({ error: 'You have already checked in today.' }, { status: 409 });
       return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
     }
     punch = data as Punch;
-    await markPresent(me.id, me.doj, Number(me.monthly_salary), day);
+    message = late.message;
+    await markDay(me.id, me.doj, Number(me.monthly_salary), day, late.code);
   } else {
     if (!existing) return NextResponse.json({ error: 'Check in first.' }, { status: 400 });
     const { data, error } = await admin.from('attendance_punches').update({
@@ -104,5 +139,5 @@ export async function POST(req: Request) {
     if (error || !data) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
     punch = data as Punch;
   }
-  return NextResponse.json({ ok: true, punch });
+  return NextResponse.json({ ok: true, punch, message });
 }

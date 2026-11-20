@@ -47,6 +47,11 @@ export interface Settings {
   office_lat: number | null;
   office_lng: number | null;
   office_radius_m: number;
+  /** Office start time 'HH:MM[:SS]'; a check-in after it is late. null = no late rule. */
+  office_start_time?: string | null;
+  /** Late check-ins up to this time stay Present for the first `late_allowed_per_month` times a month. */
+  late_grace_until?: string | null;
+  late_allowed_per_month?: number | null;
 }
 
 /** One day's mobile check-in / check-out. */
@@ -60,6 +65,8 @@ export interface Punch {
   out_at: string | null;
   out_distance_m: number | null;
   out_accuracy_m: number | null;
+  /** What the check-in time counted as (null = before the late rule existed). */
+  in_status?: 'on_time' | 'late' | 'half_day' | null;
 }
 
 export interface Employee {
@@ -163,6 +170,8 @@ export const EMPLOYEE_TEXT_FIELDS = [
 export type LeaveType = 'short' | 'paid' | 'unpaid';
 export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
+export type ShortSession = 'morning' | 'evening';
+
 export interface LeaveRequest {
   id: string;
   employee_id: string;
@@ -184,6 +193,8 @@ export interface LeaveRequest {
   requested_type: LeaveType | null;
   /** Paid leave asked for beyond the monthly allowance: HR decides paid or absent. */
   over_quota: boolean;
+  /** Short leave only: taken in the morning (comes in late) or the evening (leaves early). */
+  short_session?: ShortSession | null;
   /** Team leader's step ('not_required' = no team leader login when the request was made). */
   tl_status: StepStatus | 'not_required';
   tl_by_name: string | null;

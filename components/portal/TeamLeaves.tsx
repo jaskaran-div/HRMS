@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '../AppContext';
 import { LeaveStatus } from '../LeaveStatus';
 import { fmtDate } from '@/lib/dates';
-import { canDecideStep, decidedBy, leaveLabel } from '@/lib/leave';
+import { canDecideStep, decidedBy, leaveTitle } from '@/lib/leave';
 import type { LeaveRequest } from '@/lib/types';
 
 import { ask } from '../Dialog';
@@ -39,7 +39,7 @@ export function TeamLeaves({ rows, showName = true }: { rows: TeamLeave[]; showN
           {rows.map(l => (
             <tr key={l.id}>
               {showName && <td><b>{l.name}</b><div className="muted small">{l.emp_code}</div></td>}
-              <td>{leaveLabel(l.leave_type)}</td>
+              <td>{leaveTitle(l)}</td>
               <td>{l.start_date === l.end_date ? fmtDate(l.start_date) : `${fmtDate(l.start_date)} – ${fmtDate(l.end_date)}`}<div className="muted small">applied {fmtDate(l.created_at)}</div></td>
               <td className="n">{l.days}</td>
               <td>{l.reason || <span className="muted">—</span>}</td>

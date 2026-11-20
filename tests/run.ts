@@ -7,9 +7,10 @@ import { amountInWords } from '../lib/format';
 import { daysInMonth, isOffSaturday, toISODate, toMonthStart } from '../lib/dates';
 import * as XLSX from 'xlsx';
 import { rowsFromWorkbook, type SheetRow } from '../lib/sheet';
-import { availableTypes, canDecideStep, decidedBy, overallStatus, quotaFor, stageText, validateLeave, workingDays } from '../lib/leave';
+import { availableTypes, canDecideStep, decidedBy, overallStatus, leaveTitle, quotaFor, stageText, validateLeave, workingDays } from '../lib/leave';
 import { employedIn } from '../lib/exit';
 import { countDays, monthDays } from '../lib/att-view';
+import { checkInStatus, fmtTime, minutesIST, toMinutes } from '../lib/late';
 
 let passed = 0;
 const test = (name: string, fn: () => void) => {
@@ -412,6 +413,31 @@ test('approved leave shows as confirmed on the calendar and counts; HR marks sti
   assert.equal(c.L, 1); assert.equal(c.P, 1);
   // short leave on a week off (Sunday 22nd) is not shown
   assert.equal(monthDays('2026-11-01', null, null, [{ leave_type: 'short', start_date: '2026-11-22', end_date: '2026-11-22' }])[21].code, '');
+});
+
+test('late check-in: present within the allowance, then half day; after the grace time always half day', () => {
+  const S = { office_start_time: '10:00:00', late_grace_until: '10:30', late_allowed_per_month: 3 };
+  const at = (t: string) => toMinutes(t)!;
+  assert.equal(checkInStatus(at('09:45'), S, 0), 'on_time');
+  assert.equal(checkInStatus(at('10:00'), S, 5), 'on_time');
+  assert.equal(checkInStatus(at('10:15'), S, 0), 'late');
+  assert.equal(checkInStatus(at('10:30'), S, 2), 'late');      // 3rd late of the month: still present
+  assert.equal(checkInStatus(at('10:15'), S, 3), 'half_day');  // 4th late
+  assert.equal(checkInStatus(at('10:31'), S, 0), 'half_day');  // after the grace time
+  assert.equal(checkInStatus(at('11:00'), { ...S, office_start_time: null }, 9), 'on_time'); // no rule set
+  assert.equal(checkInStatus(at('10:05'), { ...S, late_allowed_per_month: 0 }, 0), 'half_day');
+  assert.equal(fmtTime('10:30:00'), '10:30 AM'); assert.equal(fmtTime('13:05'), '1:05 PM'); assert.equal(fmtTime('00:10'), '12:10 AM');
+  assert.equal(minutesIST(new Date('2026-11-20T04:45:00Z')), 10 * 60 + 15); // 04:45 UTC = 10:15 IST
+});
+
+test('short leave needs morning or evening (older apps that do not send it still work)', () => {
+  const Q = { short_leave_per_month: 1, paid_leave_per_month: 1 };
+  const base = { leave_type: 'short' as const, start_date: '2026-11-12', end_date: '2026-11-12' };
+  assert.equal(validateLeave({ ...base, short_session: '' }, [], Q, '2026-11-10').ok, false);
+  assert.equal(validateLeave({ ...base, short_session: 'morning' }, [], Q, '2026-11-10').ok, true);
+  assert.equal(validateLeave(base, [], Q, '2026-11-10').ok, true);
+  assert.equal(leaveTitle({ leave_type: 'short', short_session: 'evening' }), 'Short leave (Evening)');
+  assert.equal(leaveTitle({ leave_type: 'paid', short_session: null }), 'Paid leave');
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

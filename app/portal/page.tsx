@@ -3,7 +3,7 @@ import { portalSession, myTeam } from '@/lib/portal';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { currentYM, fmtDate, monthLabel, todayISO } from '@/lib/dates';
 import { initials, inr } from '@/lib/format';
-import { leaveLabel, quotaFor, stageText, STATUS_PILL } from '@/lib/leave';
+import { leaveLabel, leaveTitle, quotaFor, stageText, STATUS_PILL } from '@/lib/leave';
 import { Icon } from '@/components/Icon';
 import { MaskedAmount } from '@/components/MaskedAmount';
 import { AttendanceStrip, StripLegend, markOf, type StripMark } from '@/components/AttendanceStrip';
@@ -100,7 +100,7 @@ export default async function PortalHome() {
           {ls.slice(0, 5).map(l => (
             <div key={l.id} className="who-c" style={{ padding: '9px 0', borderBottom: '1px solid var(--line-2)' }}>
               <span className="av"><Icon name={l.leave_type === 'short' ? 'clock' : 'plane'} size={16} /></span>
-              <div style={{ flex: 1, minWidth: 0 }}><b>{leaveLabel(l.leave_type)}</b>
+              <div style={{ flex: 1, minWidth: 0 }}><b>{leaveTitle(l)}</b>
                 <div className="muted small">{l.start_date === l.end_date ? fmtDate(l.start_date) : `${fmtDate(l.start_date)} – ${fmtDate(l.end_date)}`}</div></div>
               <span className={`pill ${STATUS_PILL[l.status]}`}>{stageText(l)}</span>
             </div>

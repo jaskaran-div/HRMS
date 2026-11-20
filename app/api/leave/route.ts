@@ -6,7 +6,7 @@ import { canDecideStep, decidedBy, validateLeave, type LeaveInput } from '@/lib/
 import { emailLeaveCancelled, emailLeaveDecision, emailLeaveRequest, emailLeaveStep } from '@/lib/leave-mail';
 import { appUrl } from '@/lib/notify-mail';
 import { fmtDate, todayISO } from '@/lib/dates';
-import { leaveLabel } from '@/lib/leave';
+import { leaveTitle } from '@/lib/leave';
 import { hrUsers, leadUserOf, notifyUsers, usersOfEmployees } from '@/lib/push';
 import { canEditRole } from '@/lib/roles';
 import type { LeaveRequest, Settings } from '@/lib/types';
@@ -41,6 +41,8 @@ export async function POST(req: Request) {
   const input: LeaveInput = {
     leave_type: b.leave_type as LeaveInput['leave_type'], start_date: String(b.start_date ?? ''),
     end_date: String(b.end_date ?? b.start_date ?? ''), reason: String(b.reason ?? '').trim().slice(0, 1000),
+    // older mobile app versions do not send it: then it stays unset
+    short_session: b.short_session === undefined ? undefined : (b.short_session ?? ''),
   };
   if (input.leave_type === 'short') input.end_date = input.start_date;
 
@@ -63,7 +65,8 @@ export async function POST(req: Request) {
 
   const { data: row, error } = await admin.from('leave_requests').insert({
     employee_id: empId, leave_type: input.leave_type, start_date: input.start_date, end_date: input.end_date,
-    days: v.days, reason: input.reason || null, created_by: g.user.id, requested_type: input.leave_type, over_quota: v.overQuota,
+    days: v.days, reason: input.reason || null, created_by: g.user.id,
+    short_session: input.leave_type === 'short' && input.short_session ? input.short_session : null, requested_type: input.leave_type, over_quota: v.overQuota,
     tl_status: leadStep ? 'pending' : 'not_required', hr_status: 'pending', status: 'pending',
   }).select('*').single();
   if (error || !row) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
@@ -71,7 +74,7 @@ export async function POST(req: Request) {
   // push: the team leader (who can decide in the app) and HR
   const name = await employeeName(empId);
   const [leadUser, hr] = await Promise.all([leadUserOf(empId), hrUsers(g.org.id)]);
-  const note = { kind: 'leave_request', title: `Leave request: ${name}`, body: `${leaveLabel(input.leave_type)} · ${datesOf(input)} · ${v.days} day(s)` };
+  const note = { kind: 'leave_request', title: `Leave request: ${name}`, body: `${leaveTitle(row as LeaveRequest)} · ${datesOf(input)} · ${v.days} day(s)` };
   await Promise.all([
     leadStep && leadUser ? notifyUsers([leadUser], { ...note, data: { screen: '/approvals', id: row.id } }) : Promise.resolve(),
     notifyUsers(hr.filter(id => id !== leadUser && id !== g.user.id), { ...note, data: { screen: '/leave', id: row.id } }),
@@ -113,7 +116,7 @@ export async function PATCH(req: Request) {
     if (l.tl_status === 'pending')
       await notifyUsers([await leadUserOf(l.employee_id)], {
         kind: 'leave_cancelled', title: `Leave cancelled: ${await employeeName(l.employee_id)}`,
-        body: `${leaveLabel(l.leave_type)} · ${datesOf(l)} — no action needed.`, data: { screen: '/approvals', id: l.id },
+        body: `${leaveTitle(l)} · ${datesOf(l)} — no action needed.`, data: { screen: '/approvals', id: l.id },
       });
     return NextResponse.json({ ok: true });
   }
@@ -165,7 +168,7 @@ export async function PATCH(req: Request) {
     const u = updated as LeaveRequest;
     await notifyUsers(await usersOfEmployees([l.employee_id]), {
       kind: 'leave_decision', title: `Leave ${status === 'approved' ? 'approved' : 'declined'}`,
-      body: `${leaveLabel(u.leave_type)} · ${datesOf(u)} — by ${step === 'tl' ? 'your team leader' : 'HR'} (${g.profile.full_name})${note ? `: ${note}` : ''}`,
+      body: `${leaveTitle(u)} · ${datesOf(u)} — by ${step === 'tl' ? 'your team leader' : 'HR'} (${g.profile.full_name})${note ? `: ${note}` : ''}`,
       data: { screen: '/leave', id: l.id },
     });
     if (l.status === 'pending') await emailLeaveStep(updated as LeaveRequest, step, appUrl(req)); // the other side: no action needed

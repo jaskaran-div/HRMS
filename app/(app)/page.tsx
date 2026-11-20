@@ -13,7 +13,7 @@ import { useLoad } from '@/lib/use-load';
 import { payFor, rulesFrom } from '@/lib/payroll';
 import { fmtDate, monthLabel, todayISO } from '@/lib/dates';
 import { initials, inrWhole } from '@/lib/format';
-import { leaveLabel } from '@/lib/leave';
+import { leaveTitle } from '@/lib/leave';
 import type { Attendance, Employee, LeaveRequest } from '@/lib/types';
 
 type Leave = LeaveRequest & { employees: { name: string; emp_code: string } | null };
@@ -129,14 +129,14 @@ export default function Dashboard() {
           {data.waiting.map(l => (
             <div key={l.id} className="who-c" style={{ padding: '9px 0', borderBottom: '1px solid var(--line-2)' }}>
               <span className="av">{initials(l.employees?.name ?? '?')}</span>
-              <div style={{ flex: 1, minWidth: 0 }}><b>{l.employees?.name}</b><div className="muted small">{leaveLabel(l.leave_type)} · {when(l)} · {l.days} day(s)</div></div>
+              <div style={{ flex: 1, minWidth: 0 }}><b>{l.employees?.name}</b><div className="muted small">{leaveTitle(l)} · {when(l)} · {l.days} day(s)</div></div>
               {l.over_quota && <span className="pill warn">Over limit</span>}
             </div>
           ))}
           {!data.waiting.length && <p className="muted" style={{ margin: 0 }}>Nothing waiting. 🎉</p>}
           {data.away.length > 0 && <>
             <h3 style={{ marginTop: 18 }}>On leave today</h3>
-            <div className="chips">{data.away.map(l => <span key={l.id} className="pill blue">{l.employees?.name} · {leaveLabel(l.leave_type)}</span>)}</div>
+            <div className="chips">{data.away.map(l => <span key={l.id} className="pill blue">{l.employees?.name} · {leaveTitle(l)}</span>)}</div>
           </>}
         </div>
         <div className="card">

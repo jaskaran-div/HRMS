@@ -4,7 +4,7 @@ import { isOfficial, mailConfigured, notOfficialMsg } from './mailer';
 import { orgMail } from './org-mail';
 import { escapeHtml, htmlToText, wrapEmail } from './email-templates';
 import { fmtDate } from './dates';
-import { leaveLabel, stageText, STATUS_LABEL } from './leave';
+import { leaveTitle, stageText, STATUS_LABEL } from './leave';
 import { officialEmailOf } from './official-email';
 import type { LeaveRequest, Settings } from './types';
 
@@ -48,7 +48,7 @@ export async function emailLeaveRequest(l: LeaveRequest, origin: string): Promis
 <p>${escapeHtml(e.name)} has applied for leave:</p>
 ${table([
     ['Employee', `${e.name} (${e.emp_code})`], ...(e.department ? [['Department', e.department] as [string, string]] : []),
-    ['Leave type', leaveLabel(l.leave_type)], ['Date(s)', when(l)], ['Working days', String(l.days)],
+    ['Leave type', leaveTitle(l)], ['Date(s)', when(l)], ['Working days', String(l.days)],
     ['Reason', l.reason?.trim() || '—'],
   ])}
 ${l.tl_status === 'pending'
@@ -59,7 +59,7 @@ ${l.tl_status === 'pending'
   try {
     await transport.sendMail({
       from, to, replyTo: valid(e.email) && isOfficial(e.email, s) ? e.email!.trim() : replyTo,
-      subject: `Leave request: ${e.name} — ${leaveLabel(l.leave_type)}, ${when(l)}`,
+      subject: `Leave request: ${e.name} — ${leaveTitle(l)}, ${when(l)}`,
       html, text: htmlToText(html),
     });
   } catch (err) {
@@ -83,7 +83,7 @@ export async function emailLeaveDecision(l: LeaveRequest): Promise<void> {
   const body = `<p><b>Hi ${escapeHtml(emp.name)},</b></p>
 <p>Your leave request has been <b>${STATUS_LABEL[l.status].toLowerCase()}</b>: ${escapeHtml(stageText(l))}.</p>
 ${table([
-    ['Leave type', leaveLabel(l.leave_type)], ['Date(s)', when(l)], ['Working days', String(l.days)],
+    ['Leave type', leaveTitle(l)], ['Date(s)', when(l)], ['Working days', String(l.days)],
     ...(l.tl_note ? [['Team leader note', l.tl_note] as [string, string]] : []),
     ...(l.hr_note ? [['HR note', l.hr_note] as [string, string]] : []),
   ])}`;
@@ -92,7 +92,7 @@ ${table([
   try {
     await transport.sendMail({
       from, replyTo, to,
-      subject: `Leave ${STATUS_LABEL[l.status].toLowerCase()}: ${leaveLabel(l.leave_type)}, ${when(l)}`, html, text: htmlToText(html),
+      subject: `Leave ${STATUS_LABEL[l.status].toLowerCase()}: ${leaveTitle(l)}, ${when(l)}`, html, text: htmlToText(html),
     });
   } catch { /* the decision is saved either way */ }
 }
@@ -139,7 +139,7 @@ export async function emailLeaveStep(l: LeaveRequest, step: 'hr' | 'tl', origin:
   const body = `<p><b>Hello${!toHr && p.lead?.name ? ` ${escapeHtml(p.lead.name)}` : ''},</b></p>
 <p>${escapeHtml(who)} has already <b>${decision}</b> ${escapeHtml(p.e.name)}'s leave request. It counts as ${decision} — no action is needed from you.</p>
 ${table([
-    ['Employee', `${p.e.name} (${p.e.emp_code})`], ['Leave type', leaveLabel(l.leave_type)], ['Date(s)', when(l)], ['Working days', String(l.days)],
+    ['Employee', `${p.e.name} (${p.e.emp_code})`], ['Leave type', leaveTitle(l)], ['Date(s)', when(l)], ['Working days', String(l.days)],
     ['Reason', l.reason?.trim() || '—'], ...(note ? [['Note', note] as [string, string]] : []),
   ])}
 <p><a href="${escapeHtml(link)}" style="color:#2f6bff">View it in the HR Portal</a></p>`;
@@ -152,6 +152,6 @@ export async function emailLeaveCancelled(l: LeaveRequest): Promise<void> {
   const p = await parties(l);
   if (!p) return;
   const body = `<p><b>Hello,</b></p><p>${escapeHtml(p.e.name)} has <b>cancelled</b> this leave request — no action needed.</p>
-${table([['Employee', `${p.e.name} (${p.e.emp_code})`], ['Leave type', leaveLabel(l.leave_type)], ['Date(s)', when(l)]])}`;
+${table([['Employee', `${p.e.name} (${p.e.emp_code})`], ['Leave type', leaveTitle(l)], ['Date(s)', when(l)]])}`;
   await send(p.s, [p.lead?.email, hrAddress(p.s)], `Leave cancelled: ${p.e.name} — ${when(l)}`, body, p.e.email);
 }

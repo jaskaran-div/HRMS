@@ -1,5 +1,5 @@
 import { isOffSaturday } from './dates';
-import type { LeaveRequest, LeaveStatus, LeaveType, Settings } from './types';
+import type { LeaveRequest, LeaveStatus, LeaveType, Settings, ShortSession } from './types';
 
 export const LEAVE_TYPES: { type: LeaveType; label: string; hint: string }[] = [
   { type: 'short', label: 'Short leave', hint: 'A few hours on one day, paid' },
@@ -8,6 +8,19 @@ export const LEAVE_TYPES: { type: LeaveType; label: string; hint: string }[] = [
 ];
 
 export const leaveLabel = (t: LeaveType) => LEAVE_TYPES.find(x => x.type === t)?.label ?? t;
+
+/** When a short leave is taken: the morning (comes in late) or the evening (leaves early). */
+export const SHORT_SESSIONS: { value: ShortSession; label: string; hint: string }[] = [
+  { value: 'morning', label: 'Morning', hint: 'Come in late' },
+  { value: 'evening', label: 'Evening', hint: 'Leave early' },
+];
+export const sessionLabel = (s: ShortSession | null | undefined) => SHORT_SESSIONS.find(x => x.value === s)?.label ?? '';
+
+/** Leave type as shown in lists and emails, e.g. "Short leave (Morning)". */
+export function leaveTitle(l: Pick<LeaveRequest, 'leave_type'> & { short_session?: ShortSession | null }): string {
+  const s = l.leave_type === 'short' ? sessionLabel(l.short_session) : '';
+  return s ? `${leaveLabel(l.leave_type)} (${s})` : leaveLabel(l.leave_type);
+}
 
 export const STATUS_LABEL: Record<LeaveStatus, string> = {
   pending: 'Pending', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled',
@@ -95,7 +108,11 @@ export function availableTypes(q: Quota): LeaveType[] {
   return out;
 }
 
-export interface LeaveInput { leave_type: LeaveType; start_date: string; end_date: string; reason?: string }
+/**
+ * `short_session`: short leave only. Left out (undefined) only by older mobile app versions that do not ask for it;
+ * otherwise it must be 'morning' or 'evening'.
+ */
+export interface LeaveInput { leave_type: LeaveType; start_date: string; end_date: string; reason?: string; short_session?: ShortSession | '' | null }
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_UNPAID_DAYS = 31;
@@ -111,6 +128,8 @@ export function validateLeave(
   const { leave_type: t, start_date: a } = input;
   const b = t === 'short' ? a : input.end_date || a;
   if (!LEAVE_TYPES.some(x => x.type === t)) return { ok: false, error: 'Pick a leave type.' };
+  if (t === 'short' && input.short_session !== undefined && !SHORT_SESSIONS.some(x => x.value === input.short_session))
+    return { ok: false, error: 'Pick when the short leave is: morning or evening.' };
   if (!ISO.test(a) || !ISO.test(b)) return { ok: false, error: 'Pick the date(s).' };
   if (b < a) return { ok: false, error: 'The end date is before the start date.' };
   const back = new Date(parse(today)); back.setDate(back.getDate() - 30);

@@ -9,7 +9,7 @@ import { supabaseBrowser } from '@/lib/supabase/client';
 import { fetchAll } from '@/lib/fetch-all';
 import { useLoad } from '@/lib/use-load';
 import { currentYM, fmtDate, monthLabel, monthStart, shiftMonth } from '@/lib/dates';
-import { canDecideStep, decidedBy, leaveLabel } from '@/lib/leave';
+import { canDecideStep, decidedBy, leaveTitle } from '@/lib/leave';
 import type { LeaveRequest } from '@/lib/types';
 
 import { ask } from '@/components/Dialog';
@@ -69,7 +69,7 @@ export default function LeavesPage() {
   const row = (l: Row) => (
     <tr key={l.id}>
       <td>{l.employees ? <Link href={`/employees/${encodeURIComponent(l.employees.emp_code)}`}><b>{l.employees.name}</b></Link> : '—'}<div className="muted small">{l.employees?.emp_code}{l.employees?.department ? ` · ${l.employees.department}` : ''}</div></td>
-      <td>{leaveLabel(l.leave_type)}</td>
+      <td>{leaveTitle(l)}</td>
       <td>{when(l)}<div className="muted small">applied {fmtDate(l.created_at)}</div></td>
       <td className="n">{l.days}</td>
       <td style={{ minWidth: 180, maxWidth: 280, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.4 }}>{l.reason || <span className="muted">—</span>}</td>
