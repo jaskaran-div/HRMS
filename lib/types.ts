@@ -47,7 +47,7 @@ export interface Settings {
   office_lat: number | null;
   office_lng: number | null;
   office_radius_m: number;
-  /** Office start time 'HH:MM[:SS]'; a check-in after it is late. null = no late rule. */
+  /** Check in by 'HH:MM[:SS]': up to it = Present, after it = late. null = no timing rule. */
   office_start_time?: string | null;
   /** Late check-ins up to this time stay Present for the first `late_allowed_per_month` times a month. */
   late_grace_until?: string | null;
@@ -67,14 +67,19 @@ export interface Settings {
   checkout_by?: string | null;
 }
 
-/** A work shift: its employees get every check-in / check-out window moved with it. */
+/** A work shift. Its employees follow its own timing rules (`rules`); end_time is its office end time. */
 export interface Shift {
   id: string;
   org_id: string;
   name: string;
   start_time: string; // 'HH:MM:SS'
   end_time: string;
+  /** The shift's check-in / check-out rules (same fields as the company office timing); null = the company office timing. */
+  rules: ShiftRules | null;
 }
+
+export type ShiftRules = Partial<Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month' | 'checkin_close_time'
+  | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'checkout_by'>>;
 
 /** One day's mobile check-in / check-out. */
 export interface Punch {

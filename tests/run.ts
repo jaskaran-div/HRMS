@@ -492,27 +492,37 @@ test('half-day leave: morning / evening required, half a day, paid within the mo
   assert.equal(none.halfPaid, 0); assert.equal(none.paidDays, 29);
 });
 
-test('shifts move every window; check-out deadline follows the shift end', () => {
+test('each shift has its own timing: check in by 10:15 = Present even on a 10:00 shift; late 10:16-10:30 the first 3 times', () => {
   const S = {
-    office_start_time: '10:00', late_grace_until: '10:30', late_allowed_per_month: 3, checkin_close_time: '11:00',
-    second_half_start: '14:00', morning_short_back: '12:30', checkin_extra_min: 60, office_end_time: '19:00', checkout_by: '20:00',
+    office_start_time: '10:15', late_grace_until: '10:30', late_allowed_per_month: 3, checkin_close_time: '11:30',
+    second_half_start: '14:00', morning_short_back: '12:00', checkin_extra_min: 30, office_end_time: '18:30', checkout_by: '23:55',
   };
   const at = (t: string) => toMinutes(t)!;
-  assert.equal(windows(S)!.checkoutBy, at('20:00'));
-  const w = windows(S, { start_time: '14:00:00', end_time: '23:00:00' })!;
-  assert.equal(w.start, at('14:00')); assert.equal(w.grace, at('14:30')); assert.equal(w.close, at('15:00'));
-  assert.equal(w.second, at('18:00')); assert.equal(w.deadline, at('19:00')); assert.equal(w.shortUntil, at('17:30'));
-  assert.equal(w.checkoutBy, at('23:59')); // 23:00 + 1 h, capped at the end of the day
-  const shift = { start_time: '14:00', end_time: '22:00' };
   const code = (d: ReturnType<typeof decideCheckIn>) => (d.ok ? d.code : 'blocked');
-  assert.equal(code(decideCheckIn(at('14:20'), S, 0, null, shift)), 'P');
-  assert.equal(code(decideCheckIn(at('15:30'), S, 0, null, shift)), 'blocked');
-  assert.equal(code(decideCheckIn(at('18:30'), S, 0, null, shift)), 'H');
-  assert.equal(decideCheckOut(at('19:59'), S).ok, true);
-  assert.equal(decideCheckOut(at('20:01'), S).ok, false);
-  assert.equal(decideCheckOut(at('22:30'), S, shift).ok, true); // shift ends 22:00 -> check out by 23:00
-  assert.equal(decideCheckOut(at('23:01'), S, shift).ok, false);
+  const status = (d: ReturnType<typeof decideCheckIn>) => (d.ok ? d.status : 'blocked');
+  // morning shift 10:00 - 6:30 with the company timing as its own rules: nothing moves
+  const morning = { start_time: '10:00:00', end_time: '18:30:00', rules: { ...S } };
+  assert.equal(status(decideCheckIn(at('10:05'), S, 0, null, morning)), 'on_time');
+  assert.equal(status(decideCheckIn(at('10:15'), S, 0, null, morning)), 'on_time');
+  assert.equal(status(decideCheckIn(at('10:16'), S, 0, null, morning)), 'late');
+  assert.equal(code(decideCheckIn(at('10:25'), S, 2, null, morning)), 'P');   // 3rd late: still present
+  assert.equal(code(decideCheckIn(at('10:25'), S, 3, null, morning)), 'H');   // 4th late
+  // evening shift 11:00 - 7:30 with its own times
+  const evening = { start_time: '11:00', end_time: '19:30', rules: { ...S, office_start_time: '11:15', late_grace_until: '11:30', checkin_close_time: '12:30', second_half_start: '15:00', morning_short_back: '13:00', checkout_by: '23:59' } };
+  assert.equal(status(decideCheckIn(at('11:10'), S, 0, null, evening)), 'on_time');
+  assert.equal(status(decideCheckIn(at('11:20'), S, 0, null, evening)), 'late');
+  assert.equal(code(decideCheckIn(at('12:00'), S, 0, null, evening)), 'H');
+  const w = windows(S, evening)!;
+  assert.equal(w.end, at('19:30'));             // the shift end is its office end
+  assert.equal(w.deadline, at('15:30'));
+  assert.equal(w.checkoutBy, at('23:59'));
+  // a shift without its own timing, or no shift: the company timing
+  assert.equal(windows(S, { start_time: '14:00', end_time: '22:00' })!.start, at('10:15'));
+  assert.equal(decideCheckOut(at('23:50'), S).ok, true);
+  assert.equal(decideCheckOut(at('23:56'), S).ok, false);
   assert.equal(decideCheckOut(at('23:30'), { ...S, checkout_by: null }).ok, true); // no check-out rule
+  // a shift can turn the rule off for its employees
+  assert.equal(windows(S, { ...evening, rules: { ...evening.rules, office_start_time: null } }), null);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

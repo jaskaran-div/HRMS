@@ -28,37 +28,38 @@ export function fmtTime(t: string | number | null | undefined): string {
 export type LateRules = Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month'>
   & Partial<Pick<Settings, 'checkin_close_time' | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'office_end_time' | 'checkout_by'>>;
 
-/** An employee's shift ('HH:MM[:SS]'); null = the company office timing. */
-export type ShiftTimes = { start_time: string; end_time: string } | null | undefined;
+/** The timing rules a shift (or the company default) has. Times are 'HH:MM[:SS]'; office_start_time = check in by. */
+export type TimingRules = Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month' | 'checkin_close_time'
+  | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'office_end_time' | 'checkout_by'>;
+
+/** An employee's shift ('HH:MM[:SS]') with its own timing rules; null = the company office timing. */
+export type ShiftTimes = { start_time: string; end_time: string; rules?: Partial<TimingRules> | null } | null | undefined;
 
 const LAST_MINUTE = 23 * 60 + 59;
 
+/** The rules that apply: the shift's own (its end time is the office end), else the company office timing. */
+export function rulesFor(s: LateRules, shift?: ShiftTimes): LateRules {
+  return shift?.rules ? { ...s, ...shift.rules, office_end_time: shift.end_time } : s;
+}
+
 /**
  * The day's windows in minutes after midnight, or null when there is no office timing rule.
- * With a shift, every check-in window keeps its distance from the office start time but starts from the shift start,
- * and the check-out deadline keeps its distance from the office end time but follows the shift end.
+ * A shift with its own timing (Company & Rules → Office timing → the shift's tab) uses it; otherwise the company timing.
  */
-export function windows(s: LateRules, shift?: ShiftTimes) {
-  const officeStart = toMinutes(s.office_start_time);
-  if (officeStart == null) return null;
-  const shiftStart = toMinutes(shift?.start_time);
-  const move = shiftStart == null ? 0 : shiftStart - officeStart;
-  const at = (t: number) => Math.min(LAST_MINUTE, Math.max(0, t + move));
-  const start = at(officeStart);
-  const grace = Math.max(start, at(toMinutes(s.late_grace_until) ?? officeStart));
-  const close = Math.max(grace, at(toMinutes(s.checkin_close_time) ?? officeStart));
+export function windows(base: LateRules, shift?: ShiftTimes) {
+  const s = rulesFor(base, shift);
+  const start = toMinutes(s.office_start_time);
+  if (start == null) return null;
+  const at = (t: number) => Math.min(LAST_MINUTE, Math.max(0, t));
+  const grace = Math.max(start, at(toMinutes(s.late_grace_until) ?? start));
+  const close = Math.max(grace, at(toMinutes(s.checkin_close_time) ?? start));
   const extra = Math.max(0, Number(s.checkin_extra_min ?? 60));
-  const second = Math.max(close, at(toMinutes(s.second_half_start) ?? officeStart));
+  const second = Math.max(close, at(toMinutes(s.second_half_start) ?? start));
   const shortBack = toMinutes(s.morning_short_back);
-
-  const officeEnd = toMinutes(s.office_end_time);
+  const end = toMinutes(s.office_end_time);
   const outBy = toMinutes(s.checkout_by);
-  const shiftEnd = toMinutes(shift?.end_time);
-  const end = shiftEnd ?? officeEnd;
-  // check-out deadline: the same distance after the (shift) end as checkout_by is after the office end
-  const checkoutBy = outBy == null ? null
-    : Math.min(LAST_MINUTE, shiftEnd != null && officeEnd != null ? shiftEnd + Math.max(0, outBy - officeEnd) : outBy + move);
   return {
+    /** check in by this = Present */
     start, grace, close, second, extra, end,
     /** nobody checked in by now = Absent */
     deadline: Math.min(LAST_MINUTE, second + extra),
@@ -66,7 +67,7 @@ export function windows(s: LateRules, shift?: ShiftTimes) {
     shortUntil: shortBack == null ? close : Math.max(close, at(shortBack) + extra),
     allowed: Number(s.late_allowed_per_month ?? 3),
     /** check-out allowed until this; checked in but not out by then = Half day (null = no check-out rule) */
-    checkoutBy,
+    checkoutBy: outBy,
   };
 }
 
@@ -79,7 +80,7 @@ export function decideCheckOut(now: number, s: LateRules, shift?: ShiftTimes): {
 }
 
 /**
- * Late rule alone: on time by the start; late up to the grace time = Present while fewer than `late_allowed_per_month`
+ * Late rule alone: on time by the check-in-by time; late up to the grace time = Present while fewer than `late_allowed_per_month`
  * were used this month (`lateUsed`), else Half day; after the grace time = Half day.
  */
 export function checkInStatus(inMinutes: number, s: LateRules, lateUsed: number): InStatus {
@@ -99,7 +100,7 @@ export type CheckInDecision =
 /**
  * What a check-in at `now` (minutes after midnight, IST) counts as, or why it is refused.
  *
- *  Normal day:   by start = Present · up to grace = Present (first N times a month) then Half day · up to close = Half day
+ *  Normal day:   by check-in-by = Present · up to grace = Present (first N times a month) then Half day · up to close = Half day
  *                · closed until the second half · second half .. + extra = Half day · after that closed (the day is Absent)
  *  Morning short leave: check in by morning_short_back + extra (Short leave; Present while pending), else as a normal day
  *  Morning half day:    check in by second half + extra (Half day), else closed (Absent)

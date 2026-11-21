@@ -524,3 +524,35 @@ drop policy if exists shifts_write on public.shifts;
 create policy shifts_write on public.shifts for all to authenticated
   using (org_id = public.current_org_id() and public.is_admin()) with check (org_id = public.current_org_id() and public.is_admin());
 alter table public.employees add column if not exists shift_id uuid references public.shifts (id) on delete set null;
+
+-- Shift timing: every shift has its own check-in / check-out rules (Company & Rules → Office timing → the shift's tab),
+-- stored as { office_start_time (= check in by), late_grace_until, late_allowed_per_month, checkin_close_time,
+-- second_half_start, morning_short_back, checkin_extra_min, checkout_by }; the shift's end_time is its office end time.
+-- null = the company office timing. settings.office_start_time now means "check in by" (up to it = Present).
+alter table public.shifts add column if not exists rules jsonb;
+-- One-time: existing shifts get the company timing, moved by how much later the shift starts than the org's earliest
+-- shift (the earliest shift gets it unchanged); check out by keeps its distance after the shift end.
+create or replace function public._hhmm_plus(t time, d int) returns text language sql immutable as $$
+  select case when t is null then null else
+    lpad((least(1439, greatest(0, (extract(epoch from t) / 60)::int + d)) / 60)::text, 2, '0') || ':' ||
+    lpad((least(1439, greatest(0, (extract(epoch from t) / 60)::int + d)) % 60)::text, 2, '0') end $$;
+with x as (
+  select sh.id, sh.end_time, st.*,
+    ((extract(epoch from sh.start_time) - min(extract(epoch from sh.start_time)) over (partition by sh.org_id)) / 60)::int as d
+  from public.shifts sh
+  join (select org_id as s_org, office_start_time, late_grace_until, late_allowed_per_month, checkin_close_time, second_half_start,
+          morning_short_back, checkin_extra_min, office_end_time, checkout_by from public.settings) st on st.s_org = sh.org_id
+  where sh.rules is null and st.office_start_time is not null
+)
+update public.shifts s set rules = jsonb_build_object(
+  'office_start_time', public._hhmm_plus(x.office_start_time, x.d),
+  'late_grace_until', public._hhmm_plus(x.late_grace_until, x.d),
+  'late_allowed_per_month', x.late_allowed_per_month,
+  'checkin_close_time', public._hhmm_plus(x.checkin_close_time, x.d),
+  'second_half_start', public._hhmm_plus(x.second_half_start, x.d),
+  'morning_short_back', public._hhmm_plus(x.morning_short_back, x.d),
+  'checkin_extra_min', x.checkin_extra_min,
+  'checkout_by', case when x.checkout_by is null then null
+    else public._hhmm_plus(x.end_time, greatest(0, ((extract(epoch from x.checkout_by) - extract(epoch from coalesce(x.office_end_time, x.end_time))) / 60)::int)) end)
+from x where s.id = x.id;
+drop function public._hhmm_plus(time, int);

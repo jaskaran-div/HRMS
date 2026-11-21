@@ -29,12 +29,12 @@ export async function GET(req: Request) {
   const weekOff = isWeekOff(day);
   const now = minutesIST();
   const admin = supabaseAdmin();
-  const { data: all, error } = await admin.from('settings').select('*').not('office_start_time', 'is', null);
+  // every org: the company timing may be off while its shifts have their own (each employee is checked below)
+  const { data: all, error } = await admin.from('settings').select('*');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const result: Record<string, { absent: number; no_checkout: number }> = {};
   for (const st of (all ?? []) as Settings[]) {
-    if (!windows(st)) continue;
     const { data: org } = await admin.from('organizations').select('*').eq('id', st.org_id).maybeSingle();
     if (!org || !orgHasAccess(org as Org)) continue;
 

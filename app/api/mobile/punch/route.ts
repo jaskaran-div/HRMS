@@ -9,7 +9,7 @@ import type { Employee, Punch, Settings, Shift } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-/** The employee's shift, or null (= the company office timing). */
+/** The employee's shift with its own timing rules, or null (= the company office timing). */
 async function shiftOf(me: Pick<Employee, 'shift_id'>): Promise<Shift | null> {
   if (!me.shift_id) return null;
   const { data } = await supabaseAdmin().from('shifts').select('*').eq('id', me.shift_id).maybeSingle();
@@ -17,7 +17,7 @@ async function shiftOf(me: Pick<Employee, 'shift_id'>): Promise<Shift | null> {
 }
 
 /**
- * Applies the office-timing rules (Company & Rules → Office timing, moved with the employee's shift) to a check-in
+ * Applies the office-timing rules (Company & Rules → Office timing: the employee's shift tab, else "No shift") to a check-in
  * happening now: the late allowance, the morning / second-half check-in windows, and the employee's morning or evening
  * short leave / half day that day (approved, or still pending).
  */
@@ -85,7 +85,7 @@ export async function GET(req: Request) {
       check_out: outState,
       // the day's times, for display (null = no office timing rule)
       times: w ? {
-        start: fmtTime(w.start), late_until: fmtTime(w.grace), check_in_closes: fmtTime(w.close),
+        start: fmtTime(w.start), check_in_by: fmtTime(w.start), late_until: fmtTime(w.grace), check_in_closes: fmtTime(w.close),
         second_half: `${fmtTime(w.second)} – ${fmtTime(w.deadline)}`, check_out_by: w.checkoutBy != null ? fmtTime(w.checkoutBy) : null,
       } : null,
     },
