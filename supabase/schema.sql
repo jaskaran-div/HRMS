@@ -556,3 +556,19 @@ update public.shifts s set rules = jsonb_build_object(
     else public._hhmm_plus(x.end_time, greatest(0, ((extract(epoch from x.checkout_by) - extract(epoch from coalesce(x.office_end_time, x.end_time))) / 60)::int)) end)
 from x where s.id = x.id;
 drop function public._hhmm_plus(time, int);
+
+-- Check-in methods (Company & Rules → Check-in), for the web portal and the mobile app. Either or both may be on:
+--   checkin_gps  = within office_radius_m of the office location (as before; on by default)
+--   checkin_wifi = connected to the office network: the request comes from one of office_networks' public IPs
+--                  ([{ "name": "Office Wi-Fi", "ip": "203.0.113.7" | "203.0.113.0/28" }]); on with none saved = anywhere
+alter table public.settings add column if not exists checkin_gps boolean not null default true;
+alter table public.settings add column if not exists checkin_wifi boolean not null default false;
+alter table public.settings add column if not exists office_networks jsonb not null default '[]'::jsonb;
+-- How each check-in / check-out was verified, and from where (web portal or mobile app).
+alter table public.attendance_punches add column if not exists in_method text check (in_method in ('gps', 'wifi', 'anywhere'));
+alter table public.attendance_punches add column if not exists out_method text check (out_method in ('gps', 'wifi', 'anywhere'));
+alter table public.attendance_punches add column if not exists in_source text check (in_source in ('app', 'web'));
+alter table public.attendance_punches add column if not exists out_source text check (out_source in ('app', 'web'));
+alter table public.attendance_punches add column if not exists in_network text;
+alter table public.attendance_punches add column if not exists in_ip text;
+alter table public.attendance_punches add column if not exists out_ip text;

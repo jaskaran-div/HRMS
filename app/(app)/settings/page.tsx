@@ -6,6 +6,8 @@ import { useApp } from '@/components/AppContext';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { num } from '@/lib/format';
 import { OfficeTimingCard } from '@/components/OfficeTimingCard';
+import { normIp, validNetworkIp } from '@/lib/checkin';
+import type { OfficeNetwork } from '@/lib/types';
 
 export default function SettingsPage() {
   const { settings, isAdmin, notify } = useApp();
@@ -21,6 +23,24 @@ export default function SettingsPage() {
     half_day_per_month: String(settings.half_day_per_month ?? 0),
   });
   const [locating, setLocating] = useState(false);
+  const [gpsOn, setGpsOn] = useState(settings.checkin_gps !== false);
+  const [wifiOn, setWifiOn] = useState(settings.checkin_wifi === true);
+  const [networks, setNetworks] = useState<OfficeNetwork[]>(Array.isArray(settings.office_networks) ? settings.office_networks : []);
+  const [finding, setFinding] = useState(false);
+  const setNet = (i: number, k: keyof OfficeNetwork) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setNetworks(n => n.map((x, j) => (j === i ? { ...x, [k]: e.target.value } : x)));
+
+  /** Adds the public IP of the network this computer is on (do it while connected to the office Wi-Fi). */
+  async function addThisNetwork() {
+    setFinding(true);
+    const res = await fetch('/api/network/ip', { cache: 'no-store' }).then(r => r.json()).catch(() => null) as { ip?: string | null; error?: string } | null;
+    setFinding(false);
+    const ip = res?.ip;
+    if (!ip) { notify(res?.error || 'Could not read this network\u2019s address.', 'err'); return; }
+    if (networks.some(n => normIp(n.ip) === ip)) { notify(`This network (${ip}) is already in the list.`); return; }
+    setNetworks(n => [...n, { name: 'Office Wi-Fi', ip }]);
+    notify(`Added ${ip}. Give it a name, then Save.`);
+  }
 
   /** Fills the office location from this computer / phone's GPS (stand in the office when doing this). */
   function readHere() {
@@ -82,10 +102,14 @@ export default function SettingsPage() {
       notify('Enter both office latitude and longitude (e.g. 28.459497, 77.026638), or leave both blank.', 'err'); return;
     }
     if (radius < 20 || radius > 5000) { notify('Check-in radius must be between 20 and 5000 metres.', 'err'); return; }
+    const nets = networks.map(n => ({ name: n.name.trim() || 'Office Wi-Fi', ip: normIp(n.ip) })).filter(n => n.ip);
+    const bad = nets.find(n => !validNetworkIp(n.ip));
+    if (bad) { notify(`"${bad.ip}" is not an IP address. Use one like 203.0.113.7, or a range like 203.0.113.0/28.`, 'err'); return; }
     if (num(f.half_day_per_month) < 0) { notify('Paid half days per month cannot be negative.', 'err'); return; }
     setBusy(true);
     const { error } = await supabaseBrowser().from('settings').update({
       office_lat: hasLat ? lat : null, office_lng: hasLng ? lng : null, office_radius_m: radius,
+      checkin_gps: gpsOn, checkin_wifi: wifiOn, office_networks: nets,
       half_day_per_month: num(f.half_day_per_month),
       company_name: f.company_name.trim(), company_address: f.company_address.trim(), footer_note: f.footer_note.trim(), logo,
       paid_leave_per_month: num(f.paid_leave_per_month),
@@ -93,6 +117,7 @@ export default function SettingsPage() {
     }).eq('id', settings.id);
     setBusy(false);
     if (error) { notify(error.message, 'err'); return; }
+    setNetworks(nets);
     notify('Saved');
     router.refresh();
   }
@@ -153,24 +178,63 @@ export default function SettingsPage() {
 
     <form onSubmit={save}>
       <div className="card">
-        <h3>Mobile app check-in (office location)</h3>
+        <h3>Check-in (web portal and mobile app)</h3>
         <p className="muted small" style={{ marginTop: 0 }}>
-          Employees can check in from the mobile app only when their phone&apos;s GPS puts them within this distance of the office.
+          Choose how employees may check in and out, from the web portal or the mobile app. With both on, either one is enough.
           Checking in marks the day in attendance under the office timing rules (days HR already marked are not changed).
         </p>
-        <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
-          <label>Latitude<input inputMode="decimal" value={f.office_lat} onChange={set('office_lat')} placeholder="28.459497" /></label>
-          <label>Longitude<input inputMode="decimal" value={f.office_lng} onChange={set('office_lng')} placeholder="77.026638" /></label>
-          <label>Check-in radius (metres)<input type="number" min={20} max={5000} step={10} value={f.office_radius_m} onChange={set('office_radius_m')} />
-            <span className="hint">100 m is a good default. Phone GPS is usually accurate to 5–30 m outdoors.</span></label>
-        </div>
-        <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
-          <button type="button" className="btn" disabled={locating} onClick={readHere}>{locating ? 'Reading location…' : 'Use my current location'}</button>
-          {f.office_lat && f.office_lng && (
-            <a className="btn" target="_blank" rel="noreferrer" href={`https://www.google.com/maps?q=${encodeURIComponent(f.office_lat)},${encodeURIComponent(f.office_lng)}`}>Check on map</a>
-          )}
-          <span className="muted small">Tip: in Google Maps, right-click the office and click the numbers to copy them.</span>
-        </div>
+
+        <label className="chk-row">
+          <input type="checkbox" checked={gpsOn} onChange={e => setGpsOn(e.target.checked)} />
+          <span><b>Office location</b><span className="hint">Allowed when the phone&apos;s or computer&apos;s location is within the radius of the office.</span></span>
+        </label>
+        {gpsOn && (
+          <div className="chk-body">
+            <div className="mgrid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
+              <label>Latitude<input inputMode="decimal" value={f.office_lat} onChange={set('office_lat')} placeholder="28.459497" /></label>
+              <label>Longitude<input inputMode="decimal" value={f.office_lng} onChange={set('office_lng')} placeholder="77.026638" /></label>
+              <label>Check-in radius (metres)<input type="number" min={20} max={5000} step={10} value={f.office_radius_m} onChange={set('office_radius_m')} />
+                <span className="hint">100–250 m is a good default. Phone GPS is usually accurate to 5–30 m outdoors; laptops are often less precise.</span></label>
+            </div>
+            <div className="row" style={{ marginTop: 14, marginBottom: 0 }}>
+              <button type="button" className="btn" disabled={locating} onClick={readHere}>{locating ? 'Reading location…' : 'Use my current location'}</button>
+              {f.office_lat && f.office_lng && (
+                <a className="btn" target="_blank" rel="noreferrer" href={`https://www.google.com/maps?q=${encodeURIComponent(f.office_lat)},${encodeURIComponent(f.office_lng)}`}>Check on map</a>
+              )}
+              <span className="muted small">Tip: in Google Maps, right-click the office and click the numbers to copy them.</span>
+            </div>
+          </div>
+        )}
+
+        <label className="chk-row" style={{ marginTop: 16 }}>
+          <input type="checkbox" checked={wifiOn} onChange={e => setWifiOn(e.target.checked)} />
+          <span><b>Office Wi-Fi</b><span className="hint">Allowed when connected to the office network. No location needed.</span></span>
+        </label>
+        {wifiOn && (
+          <div className="chk-body">
+            <p className="muted small" style={{ marginTop: 0 }}>
+              The server recognises the office network by its <b>public IP address</b>: every device on the office Wi-Fi reaches the internet through it.
+              Easiest: open this page on a computer connected to the office Wi-Fi and click <b>Add the network I&apos;m on</b>.
+              The office internet needs a <b>fixed (static) IP</b> from the provider; if it changes, add the new one here.
+            </p>
+            {networks.map((n, i) => (
+              <div key={i} className="mgrid" style={{ gridTemplateColumns: 'minmax(160px,1fr) minmax(200px,1fr) auto', alignItems: 'end', marginBottom: 10 }}>
+                <label>Wi-Fi name<input value={n.name} onChange={setNet(i, 'name')} placeholder="Office Wi-Fi" /></label>
+                <label>Public IP address<input value={n.ip} onChange={setNet(i, 'ip')} placeholder="203.0.113.7 or 203.0.113.0/28" spellCheck={false} /></label>
+                <button type="button" className="btn danger" onClick={() => setNetworks(x => x.filter((_, j) => j !== i))}>Remove</button>
+              </div>
+            ))}
+            {!networks.length && (
+              <div className="note" style={{ marginBottom: 10 }}>No network added: employees can check in <b>from anywhere</b>, on any internet connection.</div>
+            )}
+            <div className="row" style={{ marginBottom: 0 }}>
+              <button type="button" className="btn" disabled={finding} onClick={addThisNetwork}>{finding ? 'Reading…' : 'Add the network I\u2019m on'}</button>
+              <button type="button" className="btn" onClick={() => setNetworks(x => [...x, { name: '', ip: '' }])}>Add manually</button>
+            </div>
+          </div>
+        )}
+
+        {!gpsOn && !wifiOn && <div className="note" style={{ marginTop: 14 }}>Both are off: nobody can check in from the web portal or the app.</div>}
         <button className="btn primary" style={{ marginTop: 14 }} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
     </form>

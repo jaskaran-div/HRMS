@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { quotaFor } from '@/lib/leave';
 import { todayIST } from '@/lib/geo';
 import { orgFeatures } from '@/lib/org';
+import { placeRules } from '@/lib/checkin';
 import type { LeaveRequest } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,7 @@ export async function GET() {
       .in('employee_id', team.map(t => t.id)).eq('status', 'pending').eq('tl_status', 'pending');
     pendingTeam = count ?? 0;
   }
+  const place = placeRules(st);
   const q = quotaFor((leaves ?? []) as LeaveRequest[], month, st, undefined, att ? [att] : []);
 
   return NextResponse.json({
@@ -41,7 +43,10 @@ export async function GET() {
     me, lead: lead ? { name: lead.name, email: lead.email, phone: lead.phone } : null, isLead,
     company: { name: st.company_name, logo: st.logo },
     organization: { id: org.id, name: org.name, status: org.status, features },
-    office: st.office_lat != null && st.office_lng != null ? { lat: st.office_lat, lng: st.office_lng, radius_m: st.office_radius_m ?? 100 } : null,
+    // null when location check-in is off or the office location is not set
+    office: place.gps ? { lat: place.gps.lat, lng: place.gps.lng, radius_m: place.gps.radius } : null,
+    // which check-in methods HR turned on (whether this phone is on the office Wi-Fi: GET /api/mobile/punch → today.place)
+    checkin: { location: !!place.gps, wifi: place.wifi, anywhere: place.anywhere },
     today, punch: punch ?? null,
     quota: q,
     presentThisMonth: att ? Number(att.present_days) : 0,

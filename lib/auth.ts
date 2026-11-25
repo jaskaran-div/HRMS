@@ -69,6 +69,19 @@ export async function platformGuard(): Promise<{ ok: true; user: { id: string; e
   return { ok: true, user };
 }
 
+/**
+ * The caller's public IP for security decisions (office Wi-Fi check-in). Unlike clientIp() it never trusts the
+ * left-most X-Forwarded-For entry, which the caller can write themselves: it takes X-Real-IP (nginx sets it to the
+ * connecting address), else the right-most X-Forwarded-For entry (the one the nearest proxy added).
+ */
+export async function trustedClientIp(): Promise<string | null> {
+  const h = await headers();
+  const real = (h.get('x-real-ip') ?? '').trim();
+  if (real) return real;
+  const xff = (h.get('x-forwarded-for') ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  return xff[xff.length - 1] ?? null;
+}
+
 /** Client IP (behind nginx on EC2), for rate limits. */
 export async function clientIp(): Promise<string | null> {
   const h = await headers();

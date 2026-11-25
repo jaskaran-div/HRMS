@@ -17,7 +17,7 @@ const NAV: NavItem[] = [
   { href: '/', icon: 'home', label: 'Dashboard', sub: 'Your company at a glance.' },
   { href: '/employees', icon: 'users', label: 'Employees', sub: 'Everyone on the payroll, their details and documents.' },
   { href: '/attendance', icon: 'calendar', label: 'Attendance', sub: 'Mark attendance day by day, or upload the monthly sheet.' },
-  { href: '/checkins', icon: 'clock', label: 'App check-ins', sub: 'Who checked in from the mobile app, when, and how far from the office.' },
+  { href: '/checkins', icon: 'clock', label: 'Check-ins', sub: 'Who checked in (mobile app or web), when, and how: office location or office Wi-Fi.' },
   { href: '/payroll', icon: 'wallet', label: 'Payroll & Payslips', sub: 'Check the numbers, generate payslips and email them.', feature: 'payroll' },
   { href: '/leaves', icon: 'plane', label: 'Leave', sub: 'Leave requests from employees — approve, decline and history.' },
   { href: '/teams', icon: 'network', label: 'Teams & hierarchy', sub: 'Who reports to whom. Team leaders see their team.' },

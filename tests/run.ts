@@ -10,6 +10,7 @@ import { rowsFromWorkbook, type SheetRow } from '../lib/sheet';
 import { availableTypes, canDecideStep, decidedBy, overallStatus, leaveTitle, quotaFor, stageText, validateLeave, workingDays } from '../lib/leave';
 import { employedIn } from '../lib/exit';
 import { countDays, monthDays } from '../lib/att-view';
+import { decidePlace, ipMatches, placeUnavailable, validNetworkIp } from '../lib/checkin';
 import { checkInStatus, decideCheckIn, decideCheckOut, fmtTime, minutesIST, toMinutes, windows } from '../lib/late';
 
 let passed = 0;
@@ -523,6 +524,51 @@ test('each shift has its own timing: check in by 10:15 = Present even on a 10:00
   assert.equal(decideCheckOut(at('23:30'), { ...S, checkout_by: null }).ok, true); // no check-out rule
   // a shift can turn the rule off for its employees
   assert.equal(windows(S, { ...evening, rules: { ...evening.rules, office_start_time: null } }), null);
+});
+
+test('check-in place: office Wi-Fi by public IP, office location, both, or anywhere', () => {
+  // IP matching
+  assert.equal(ipMatches('203.0.113.7', '203.0.113.7'), true);
+  assert.equal(ipMatches('::ffff:203.0.113.7', '203.0.113.7'), true);
+  assert.equal(ipMatches('203.0.113.8', '203.0.113.7'), false);
+  assert.equal(ipMatches('203.0.113.9', '203.0.113.0/28'), true);
+  assert.equal(ipMatches('203.0.113.16', '203.0.113.0/28'), false);
+  assert.equal(ipMatches('2001:db8:1::5', '2001:db8::/32'), true);
+  assert.equal(ipMatches('2001:db9::5', '2001:db8::/32'), false);
+  assert.equal(validNetworkIp('203.0.113.7'), true);
+  assert.equal(validNetworkIp('203.0.113.0/28'), true);
+  assert.equal(validNetworkIp('203.0.113.300'), false);
+  assert.equal(validNetworkIp('office'), false);
+  assert.equal(validNetworkIp('10.0.0.0/33'), false);
+
+  const office = { office_lat: 28.4595, office_lng: 77.0266, office_radius_m: 250 };
+  const near = { lat: 28.4600, lng: 77.0270, accuracy: 15, timestamp: Date.now() };   // ~70 m away
+  const far = { lat: 28.4700, lng: 77.0266, accuracy: 15, timestamp: Date.now() };    // ~1.2 km away
+  const nets = [{ name: 'Main', ip: '203.0.113.7' }];
+  const method = (d: ReturnType<typeof decidePlace>) => (d.ok ? d.method : 'no');
+
+  // location only (the old behaviour, and the default)
+  assert.equal(method(decidePlace(office, '203.0.113.7', near, 'in')), 'gps');
+  assert.equal(method(decidePlace(office, '1.1.1.1', far, 'in')), 'no');
+  assert.equal(decidePlace(office, null, {}, 'in').ok, false);
+  // Wi-Fi only
+  const wifi = { ...office, checkin_gps: false, checkin_wifi: true, office_networks: nets };
+  assert.equal(method(decidePlace(wifi, '203.0.113.7', {}, 'in')), 'wifi');
+  assert.equal(method(decidePlace(wifi, '198.51.100.1', near, 'in')), 'no');            // near the office but not on its Wi-Fi
+  // both: either one is enough
+  const both = { ...office, checkin_wifi: true, office_networks: nets };
+  assert.equal(method(decidePlace(both, '203.0.113.7', far, 'in')), 'wifi');            // far, but on the office Wi-Fi
+  assert.equal(method(decidePlace(both, '198.51.100.1', near, 'in')), 'gps');
+  const no = decidePlace(both, '198.51.100.1', far, 'in');
+  assert.equal(no.ok, false);
+  assert.match(no.ok ? '' : no.error, /office Wi-Fi/);
+  assert.equal(method(decidePlace(both, '198.51.100.1', { ...near, mocked: true }, 'in')), 'no');
+  // Wi-Fi on with no network saved: anywhere
+  assert.equal(method(decidePlace({ ...office, checkin_gps: false, checkin_wifi: true, office_networks: [] }, '198.51.100.1', {}, 'in')), 'anywhere');
+  // nothing usable
+  assert.match(placeUnavailable({ office_lat: null, office_lng: null, office_radius_m: 100 }) ?? '', /office location/);
+  assert.match(placeUnavailable({ ...office, checkin_gps: false, checkin_wifi: false }) ?? '', /turned off/);
+  assert.equal(placeUnavailable({ office_lat: null, office_lng: null, office_radius_m: 100, checkin_wifi: true }), null);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

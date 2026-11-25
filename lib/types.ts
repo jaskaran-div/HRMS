@@ -47,6 +47,11 @@ export interface Settings {
   office_lat: number | null;
   office_lng: number | null;
   office_radius_m: number;
+  /** Check in within office_radius_m of the office location (web + app). Default on. */
+  checkin_gps?: boolean;
+  /** Check in when connected to the office network (public IP in office_networks). No networks saved = anywhere. */
+  checkin_wifi?: boolean;
+  office_networks?: OfficeNetwork[];
   /** Check in by 'HH:MM[:SS]': up to it = Present, after it = late. null = no timing rule. */
   office_start_time?: string | null;
   /** Late check-ins up to this time stay Present for the first `late_allowed_per_month` times a month. */
@@ -81,8 +86,20 @@ export interface Shift {
 export type ShiftRules = Partial<Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month' | 'checkin_close_time'
   | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'checkout_by'>>;
 
-/** One day's mobile check-in / check-out. */
+/** An office Wi-Fi: its name (for people) and the public IP address (or /range) the office internet leaves from. */
+export interface OfficeNetwork { name: string; ip: string }
+
+/** One day's check-in / check-out (mobile app or web portal). */
 export interface Punch {
+  /** how the place was verified: office location, office Wi-Fi, or anywhere (Wi-Fi on, no network saved) */
+  in_method?: 'gps' | 'wifi' | 'anywhere' | null;
+  out_method?: 'gps' | 'wifi' | 'anywhere' | null;
+  in_source?: 'app' | 'web' | null;
+  out_source?: 'app' | 'web' | null;
+  /** the office Wi-Fi name, when checked in on it */
+  in_network?: string | null;
+  /** the public IP the check-in came from */
+  in_ip?: string | null;
   id: string;
   employee_id: string;
   day: string; // YYYY-MM-DD (IST)

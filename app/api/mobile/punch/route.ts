@@ -1,13 +1,40 @@
 import { NextResponse } from 'next/server';
+import { headers } from 'next/headers';
 import { mobileSession, ymParam } from '@/lib/mobile';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { distanceM, MAX_GPS_ACCURACY_M, todayIST } from '@/lib/geo';
+import { trustedClientIp } from '@/lib/auth';
+import { todayIST } from '@/lib/geo';
+import { decidePlace, officeNetworkOf, placeRules, placeUnavailable, type CheckInSource } from '@/lib/checkin';
 import { daysInMonth } from '@/lib/dates';
 import { markDay } from '@/lib/attendance-mark';
 import { decideCheckIn, decideCheckOut, fmtTime, minutesIST, windows, type CheckInDecision, type DayLeave, type ShiftTimes } from '@/lib/late';
 import type { Employee, Punch, Settings, Shift } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
+
+/** The mobile app sends `Authorization: Bearer …`; the web portal uses the login cookie. */
+async function sourceOf(): Promise<CheckInSource> {
+  return /^Bearer\s+\S+/i.test((await headers()).get('authorization') ?? '') ? 'app' : 'web';
+}
+
+/** Where the caller can check in from right now: which methods are on and whether they are on the office network. */
+function placeState(st: Settings, ip: string | null) {
+  const p = placeRules(st);
+  const net = p.wifi && !p.anywhere ? officeNetworkOf(ip, p.networks) : null;
+  const onNetwork = p.anywhere || !!net;
+  return {
+    location: !!p.gps,
+    wifi: p.wifi,
+    /** office Wi-Fi is on with no network saved */
+    anywhere: p.anywhere,
+    /** on a saved office network (or anywhere): no location needed */
+    on_office_network: onNetwork,
+    network_name: net?.name || null,
+    /** the device must send a GPS fix with the request */
+    needs_location: !onNetwork && !!p.gps,
+    office: p.gps ? { lat: p.gps.lat, lng: p.gps.lng, radius_m: p.gps.radius } : null,
+  };
+}
 
 /** The employee's shift with its own timing rules, or null (= the company office timing). */
 async function shiftOf(me: Pick<Employee, 'shift_id'>): Promise<Shift | null> {
@@ -45,11 +72,13 @@ export async function GET(req: Request) {
   if (!r.ok) return r.response;
   const { me, settings: st } = r.s;
   const day = todayIST();
-  const ym = ymParam(new URL(req.url).searchParams.get('month')) ?? day.slice(0, 7);
+  const sp = new URL(req.url).searchParams;
+  const ym = ymParam(sp.get('month')) ?? day.slice(0, 7);
   const [y, m] = ym.split('-').map(Number);
   const admin = supabaseAdmin();
   const [{ data, error }, { data: mine }, shift] = await Promise.all([
-    admin.from('attendance_punches').select('*').eq('employee_id', me.id)
+    // ?only=today (the web portal's check-in card): no month list
+    sp.get('only') === 'today' ? Promise.resolve({ data: [], error: null }) : admin.from('attendance_punches').select('*').eq('employee_id', me.id)
       .gte('day', `${ym}-01`).lte('day', `${ym}-${String(daysInMonth(y, m)).padStart(2, '0')}`).order('day', { ascending: false }),
     admin.from('attendance_punches').select('*').eq('employee_id', me.id).eq('day', day).maybeSingle(),
     shiftOf(me),
@@ -58,9 +87,14 @@ export async function GET(req: Request) {
 
   const p = mine as Punch | null;
   const w = windows(st, shift);
+  const place = placeState(st, await trustedClientIp());
+  const off = placeUnavailable(st);
+  // office Wi-Fi is the only method and this device is not on it: nothing to try until it connects
+  const notHere = !off && !place.on_office_network && !place.location;
   let inState: { allowed: boolean; note: string | null };
   if (p) inState = { allowed: false, note: `Checked in at ${new Date(p.in_at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}.` };
-  else if (st.office_lat == null || st.office_lng == null) inState = { allowed: false, note: 'HR has not set the office location yet.' };
+  else if (off) inState = { allowed: false, note: off };
+  else if (notHere) inState = { allowed: false, note: 'Connect to the office Wi-Fi to check in.' };
   else {
     const d = await checkInRule(me.id, day, st, shift);
     inState = d.ok
@@ -70,6 +104,8 @@ export async function GET(req: Request) {
   let outState: { allowed: boolean; note: string | null };
   if (!p) outState = { allowed: false, note: 'Check in first.' };
   else if (p.out_missed) outState = { allowed: false, note: 'You did not check out in time, so today counts as a half day.' };
+  else if (off) outState = { allowed: false, note: off };
+  else if (notHere) outState = { allowed: false, note: 'Connect to the office Wi-Fi to check out.' };
   else {
     const d = decideCheckOut(minutesIST(), st, shift);
     outState = d.ok
@@ -80,6 +116,8 @@ export async function GET(req: Request) {
     punches: (data ?? []) as Punch[],
     today: {
       day,
+      punch: p,
+      place,
       shift: shift ? { name: shift.name, start: fmtTime(shift.start_time), end: fmtTime(shift.end_time) } : null,
       check_in: inState,
       check_out: outState,
@@ -93,8 +131,9 @@ export async function GET(req: Request) {
 }
 
 /**
- * Body: { action: 'in' | 'out', lat, lng, accuracy, mocked?, timestamp? }
- * The phone sends a fresh GPS fix; the server checks it is within the office radius.
+ * Body: { action: 'in' | 'out', lat?, lng?, accuracy?, mocked?, timestamp? }
+ * Allowed from the office Wi-Fi (the request's public IP is a saved office network: no GPS needed), or with a fresh
+ * GPS fix within the office radius — whichever HR turned on (Company & Rules → Check-in). Web portal and app alike.
  */
 export async function POST(req: Request) {
   const r = await mobileSession();
@@ -103,8 +142,8 @@ export async function POST(req: Request) {
   const b = (await req.json().catch(() => ({}))) as { action?: string; lat?: number; lng?: number; accuracy?: number; mocked?: boolean; timestamp?: number };
 
   if (b.action !== 'in' && b.action !== 'out') return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });
-  if (st.office_lat == null || st.office_lng == null)
-    return NextResponse.json({ error: 'HR has not set the office location yet. Ask HR to set it under Company & Rules.' }, { status: 400 });
+  const off = placeUnavailable(st);
+  if (off) return NextResponse.json({ error: `${off} HR can set it under Company & Rules → Check-in.` }, { status: 400 });
 
   // time rules first: no point asking for a GPS fix when the window is closed anyway
   const admin = supabaseAdmin();
@@ -125,29 +164,21 @@ export async function POST(req: Request) {
     if (!out.ok) return NextResponse.json({ error: out.error }, { status: 400 });
   }
 
-  const lat = Number(b.lat), lng = Number(b.lng), acc = Number(b.accuracy);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180)
-    return NextResponse.json({ error: 'Could not read your location. Turn on GPS and try again.' }, { status: 400 });
-  if (b.mocked) return NextResponse.json({ error: 'A fake-location app is active on this phone. Turn it off to check in.' }, { status: 400 });
-  if (b.timestamp && Math.abs(Date.now() - Number(b.timestamp)) > 2 * 60 * 1000)
-    return NextResponse.json({ error: 'Your location is out of date. Try again.' }, { status: 400 });
-  if (!Number.isFinite(acc) || acc > MAX_GPS_ACCURACY_M)
-    return NextResponse.json({ error: `GPS is not precise enough yet (±${Number.isFinite(acc) ? Math.round(acc) : '?'} m). Wait a few seconds, or step near a window, and try again.` }, { status: 400 });
-
-  const radius = st.office_radius_m ?? 100;
-  const dist = distanceM(lat, lng, st.office_lat, st.office_lng);
-  if (dist > radius)
-    return NextResponse.json({ error: `You are ${Math.round(dist)} m from the office. You can check ${b.action} only within ${radius} m.`, distance_m: Math.round(dist) }, { status: 400 });
+  const [ip, source] = await Promise.all([trustedClientIp(), sourceOf()]);
+  const place = decidePlace(st, ip, b, b.action);
+  if (!place.ok)
+    return NextResponse.json({ error: place.error, distance_m: place.distance_m, needs_location: place.needs_location }, { status: 400 });
 
   const now = new Date().toISOString();
-  const fix = { lat, lng, accuracy_m: Math.round(acc * 10) / 10, distance_m: Math.round(dist * 10) / 10 };
+  const fix = place.fix;
 
   let punch: Punch;
   let message: string | undefined;
   if (b.action === 'in' && rule?.ok) {
     const { data, error } = await admin.from('attendance_punches').insert({
-      employee_id: me.id, day, in_at: now, in_lat: fix.lat, in_lng: fix.lng, in_accuracy_m: fix.accuracy_m, in_distance_m: fix.distance_m, created_by: profile.id,
-      in_status: rule.status,
+      employee_id: me.id, day, in_at: now, in_lat: fix?.lat ?? null, in_lng: fix?.lng ?? null, in_accuracy_m: fix?.accuracy_m ?? null,
+      in_distance_m: fix?.distance_m ?? null, created_by: profile.id, in_status: rule.status,
+      in_method: place.method, in_source: source, in_network: place.network, in_ip: ip,
     }).select('*').single();
     if (error || !data) {
       if (error?.code === '23505') return NextResponse.json({ error: 'You have already checked in today.' }, { status: 409 });
@@ -160,7 +191,8 @@ export async function POST(req: Request) {
     await markDay(me.id, me.doj, Number(me.monthly_salary), day, rule.code);
   } else {
     const { data, error } = await admin.from('attendance_punches').update({
-      out_at: now, out_lat: fix.lat, out_lng: fix.lng, out_accuracy_m: fix.accuracy_m, out_distance_m: fix.distance_m,
+      out_at: now, out_lat: fix?.lat ?? null, out_lng: fix?.lng ?? null, out_accuracy_m: fix?.accuracy_m ?? null, out_distance_m: fix?.distance_m ?? null,
+      out_method: place.method, out_source: source, out_ip: ip,
     }).eq('id', existing!.id).select('*').single();
     if (error || !data) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
     punch = data as Punch;
