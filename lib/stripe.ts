@@ -1,7 +1,7 @@
 // SERVER ONLY. Stripe client and configuration. The secret key, webhook secret and price ids come from the
 // server environment only; nothing here may be imported by a client component or the mobile app.
 import Stripe from 'stripe';
-import { ADDONS, type Feature } from './billing/catalog';
+import { PLAN } from './billing/catalog';
 
 let client: Stripe | null = null;
 
@@ -27,7 +27,6 @@ export function stripeConfigProblems(): string[] {
   if (!sk) p.push('STRIPE_SECRET_KEY is not set');
   else if (!mode) p.push('STRIPE_SECRET_KEY must start with sk_test_, sk_live_, rk_test_ or rk_live_');
   if (!process.env.STRIPE_WEBHOOK_SECRET) p.push('STRIPE_WEBHOOK_SECRET is not set');
-  if (!process.env.STRIPE_BASE_PRICE_ID) p.push('STRIPE_BASE_PRICE_ID is not set');
   if (pk && mode && !pk.startsWith(`pk_${mode}_`)) p.push(`STRIPE_PUBLISHABLE_KEY is not a ${mode} key, but STRIPE_SECRET_KEY is`);
   const want = process.env.STRIPE_MODE;
   if (want && want !== 'test' && want !== 'live') p.push('STRIPE_MODE must be "test" or "live"');
@@ -52,22 +51,31 @@ export function stripe(): Stripe {
   return client;
 }
 
-export const basePriceId = () => process.env.STRIPE_BASE_PRICE_ID ?? '';
+/**
+ * The plan's Stripe price: STRIPE_PRICE_ID (STRIPE_BASE_PRICE_ID also accepted). Blank = checkout charges
+ * PLAN.amount per PLAN.interval with an inline price, so only the keys and the webhook secret are required.
+ */
+export const basePriceId = () => (process.env.STRIPE_PRICE_ID || process.env.STRIPE_BASE_PRICE_ID || '').trim();
 
-/** Add-ons whose price id is configured: feature → price id. */
-export function addonPrices(): Map<Feature, string> {
-  const m = new Map<Feature, string>();
-  for (const a of ADDONS) {
-    const id = (process.env[a.priceEnv] ?? '').trim();
-    if (id) m.set(a.feature, id);
-  }
-  return m;
+export function planLineItem(): Stripe.Checkout.SessionCreateParams.LineItem {
+  const id = basePriceId();
+  if (id) return { price: id, quantity: 1 };
+  return {
+    quantity: 1,
+    price_data: {
+      currency: PLAN.currency, unit_amount: PLAN.amount, recurring: { interval: PLAN.interval },
+      product_data: { name: `${process.env.PLATFORM_NAME || 'HRMS'} ${PLAN.name}`, metadata: { plan: PLAN.key } },
+    },
+  };
 }
 
-/** Which add-on feature a Stripe price unlocks (null = the base plan or unknown). */
-export function featureOfPrice(priceId: string): Feature | null {
-  for (const [f, id] of addonPrices()) if (id === priceId) return f;
-  return null;
+/** What the plan costs, for display: the configured Stripe price when there is one, else PLAN. */
+export async function planPrice(): Promise<{ amount: number; currency: string; interval: string }> {
+  const fallback = { amount: PLAN.amount, currency: PLAN.currency, interval: PLAN.interval as string };
+  const id = basePriceId();
+  if (!id || !stripeConfigured()) return fallback;
+  const p = (await priceInfo([id])).get(id);
+  return p && p.amount != null ? { amount: p.amount, currency: p.currency, interval: p.interval ?? 'month' } : fallback;
 }
 
 export interface PriceInfo { id: string; amount: number | null; currency: string; interval: string | null; product: string }

@@ -627,4 +627,11 @@ alter table public.sales_inquiries enable row level security;
 -- (organizations cannot connect their own mail server: drop the table if an earlier run created it)
 drop table if exists public.org_mail_settings;
 
+------------------------------------------------------------------------------
+-- One plan with every feature: the organization switches optional features off itself; plan tracking
+------------------------------------------------------------------------------
+alter table public.organizations add column if not exists disabled_features text[] not null default '{}';
+alter table public.organizations add column if not exists subscription_started_at timestamptz;
+alter table public.organizations add column if not exists payment_method text;
+
 commit;

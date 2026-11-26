@@ -119,7 +119,7 @@ function PlanTab({ data, busy, act }: TabProps) {
   return (
     <form className="card" onSubmit={e => { e.preventDefault(); act('plan', { action: 'plan', ...plan }); }}>
       <h3>Plan, features and limits</h3>
-      <PlanFields plan={plan} onChange={setPlan} bought={(org.addons ?? []).filter(isFeature)}
+      <PlanFields plan={plan} onChange={setPlan} bought={(org.disabled_features ?? []).filter(isFeature)}
         usage={{ employees: data.employees, users: data.members.filter(m => m.status === 'active').length }} />
       <p className="muted small">Lowering a limit below what is in use keeps existing records; it only blocks adding more.</p>
       <div className="row" style={{ marginBottom: 0 }}><button className="btn primary" disabled={!!busy}>{busy === 'plan' ? 'Saving…' : 'Save plan'}</button></div>
@@ -183,8 +183,10 @@ function Payments({ data, busy, act }: TabProps) {
         <dl className="kv">
           <dt>Stripe customer</dt><dd><code>{org.stripe_customer_id ?? '—'}</code> {org.stripe_livemode != null && <span className="muted small">({org.stripe_livemode ? 'live' : 'test'})</span>}</dd>
           <dt>Subscription</dt><dd><code>{org.stripe_subscription_id ?? '—'}</code> {org.stripe_subscription_status}</dd>
-          <dt>Base plan price</dt><dd><code>{org.stripe_base_price_id ?? '—'}</code></dd>
-          <dt>Purchased add-ons</dt><dd>{(org.addons ?? []).filter(isFeature).map(f => FEATURE_LABEL[f]).join(', ') || '—'}</dd>
+          <dt>Plan price</dt><dd><code>{org.stripe_base_price_id ?? '—'}</code></dd>
+          <dt>Subscribed since</dt><dd>{d(org.subscription_started_at)}</dd>
+          <dt>Payment method</dt><dd>{org.payment_method ?? '—'}</dd>
+          <dt>Switched off by the organization</dt><dd>{(org.disabled_features ?? []).filter(isFeature).map(f => FEATURE_LABEL[f]).join(', ') || '—'}</dd>
           <dt>Cancellation</dt><dd>{org.cancel_at_period_end ? `scheduled for ${d(org.cancel_at ?? org.current_period_end)}` : org.canceled_at ? `cancelled ${d(org.canceled_at)}` : 'not cancelled'}</dd>
           <dt>Last payment error</dt><dd className={org.last_payment_error ? 'err' : ''}>{org.last_payment_error ?? '—'}</dd>
           <dt>Last synced</dt><dd>{org.stripe_synced_at ? new Date(org.stripe_synced_at).toLocaleString() : '—'}</dd>

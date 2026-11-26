@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { PLAN } from '@/lib/billing/catalog';
+import { planAmount } from '@/components/PricingCard';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { toEmail } from '@/lib/username';
 import { Icon } from '@/components/Icon';
@@ -67,6 +69,11 @@ export function LoginForm({ company, logo, notice }: { company: string; logo: st
               <li><span><Icon name="lock" size={16} /></span>Each person sees only what is theirs</li>
             </ul>
           </div>
+          <a className="login-price" href="/pricing">
+            <span>New to {company}? One plan, everything included</span>
+            <b>{planAmount({ amount: PLAN.amount, currency: PLAN.currency, interval: PLAN.interval })}<small> / month · unlimited employees</small></b>
+            <em>See pricing &amp; get started →</em>
+          </a>
           <small style={{ opacity: 0.75, position: 'relative' }}>© {new Date().getFullYear()} {company}</small>
         </div>
 
@@ -89,7 +96,7 @@ export function LoginForm({ company, logo, notice }: { company: string; logo: st
           </label>
           <button className="btn primary" disabled={busy}>{busy ? <><Spinner size={16} /> Logging in…</> : 'Log in'}</button>
           <p className="login-foot">Forgot your password? Ask HR to set a new one.</p>
-          <p className="login-foot">New organization? <a href="/register">Register</a> · <a href="/contact-sales">Contact Sales</a></p>
+          <p className="login-foot">New organization? <a href="/pricing">See pricing</a> · <a href="/register">Register</a> · <a href="/contact-sales">Contact Sales</a></p>
         </form>
       </div>
     </div>

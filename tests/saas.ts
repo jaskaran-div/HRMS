@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import Stripe from 'stripe';
 import { orgFeatures, orgHasAccess, statusFromStripe, type Org } from '../lib/org';
 import { assignableRoles, canManageTarget } from '../lib/roles';
-import { BASE_FEATURES } from '../lib/billing/catalog';
+import { ALL_FEATURES } from '../lib/billing/catalog';
+import { checkoutToken, readCheckoutToken } from '../lib/billing/checkout-token';
 import { keyMode, stripeConfigProblems } from '../lib/stripe';
 import { hashToken, newToken, validTokenShape } from '../lib/tokens';
 import nodemailer from 'nodemailer';
@@ -35,15 +36,26 @@ test('exempt organizations have access unless suspended', () => {
   assert.ok(!orgHasAccess(org({ status: 'suspended', billing_exempt: true })));
 });
 
-test('features = base + paid add-ons ± platform overrides; none without access', () => {
-  assert.deepEqual(orgFeatures(org({})), BASE_FEATURES);
-  assert.ok(orgFeatures(org({ addons: ['payroll'] })).includes('payroll'));
-  assert.ok(!orgFeatures(org({ addons: ['payroll'] })).includes('documents'));
-  assert.ok(!orgFeatures(org({ addons: ['bogus'] })).includes('bogus' as never));
-  assert.ok(orgFeatures(org({ entitlement_overrides: { grant: ['documents'] } })).includes('documents'));
-  assert.ok(!orgFeatures(org({ addons: ['payroll'], entitlement_overrides: { revoke: ['payroll'] } })).includes('payroll'));
-  assert.deepEqual(orgFeatures(org({ status: 'canceled', addons: ['payroll'] })), []);
-  assert.ok(orgFeatures(org({ billing_exempt: true })).includes('email_center'));
+test('the plan includes every feature; platform blocks and the organization switches optional ones off', () => {
+  assert.deepEqual(orgFeatures(org({})), ALL_FEATURES);
+  assert.ok(!orgFeatures(org({ entitlement_overrides: { revoke: ['payroll'] } })).includes('payroll'));
+  assert.ok(!orgFeatures(org({ disabled_features: ['documents'] })).includes('documents'));
+  assert.ok(orgFeatures(org({ disabled_features: ['employees', 'bogus'] })).includes('employees')); // core stays on
+  assert.deepEqual(orgFeatures(org({ status: 'canceled' })), []);
+  assert.deepEqual(orgFeatures(org({ status: 'pending_payment' })), []);
+  assert.ok(orgFeatures(org({ billing_exempt: true, status: 'pending_payment' })).includes('email_center'));
+});
+
+test('checkout tokens: valid for their organization only, not forgeable, expire', () => {
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-secret';
+  const id = '6f1c2a54-9a1e-4b7a-8f43-2d6f0c1b9e77';
+  const t = checkoutToken(id);
+  assert.equal(readCheckoutToken(t), id);
+  assert.equal(readCheckoutToken(t.slice(0, -2) + 'xx'), null);
+  const [, sig] = t.split('.');
+  assert.equal(readCheckoutToken(`${Buffer.from(`${id.replace('6', '7')}.9999999999`).toString('base64url')}.${sig}`), null);
+  assert.equal(readCheckoutToken(checkoutToken(id, -1)), null);
+  assert.equal(readCheckoutToken(42), null);
 });
 
 test('role chain: owner → HR admin → team leader / employee; nobody grants owner', () => {
@@ -63,7 +75,7 @@ test('role chain: owner → HR admin → team leader / employee; nobody grants o
 test('Stripe test and live keys are kept apart', () => {
   const save = { ...process.env };
   const set = (e: Record<string, string | undefined>) => { for (const [k, v] of Object.entries(e)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
-  const base = { STRIPE_WEBHOOK_SECRET: 'whsec_x', STRIPE_BASE_PRICE_ID: 'price_x', STRIPE_MODE: undefined, STRIPE_PUBLISHABLE_KEY: undefined };
+  const base = { STRIPE_WEBHOOK_SECRET: 'whsec_x', STRIPE_PRICE_ID: undefined, STRIPE_MODE: undefined, STRIPE_PUBLISHABLE_KEY: undefined };
   try {
     set({ ...base, STRIPE_SECRET_KEY: 'sk_test_abc', NODE_ENV: 'development' });
     assert.equal(keyMode(), 'test');

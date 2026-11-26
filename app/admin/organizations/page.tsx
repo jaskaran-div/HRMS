@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { listOrgs } from '@/lib/platform';
 import { STATUS_LABEL, type OrgStatus } from '@/lib/org';
-import { FEATURE_LABEL, isFeature } from '@/lib/billing/catalog';
 import { fmtDate } from '@/lib/dates';
 
 export const dynamic = 'force-dynamic';
@@ -35,8 +34,7 @@ export default async function AdminOrganizations({ searchParams }: { searchParam
                 <td className="small">{o.owner_email ?? '—'}</td>
                 <td><span className={`pill ${o.status === 'active' ? 'ok' : o.status === 'past_due' || o.status === 'pending_payment' ? 'warn' : 'bad'}`}>{STATUS_LABEL[o.status]}</span>
                   {o.cancel_at_period_end && <div className="muted small">cancels at period end</div>}</td>
-                <td className="small">{o.billing_exempt ? 'Free / managed' : o.stripe_subscription_id ? 'Stripe' : '—'}
-                  {(o.addons ?? []).filter(isFeature).length > 0 && <div className="muted">+ {(o.addons ?? []).filter(isFeature).map(f => FEATURE_LABEL[f]).join(', ')}</div>}</td>
+                <td className="small">{o.billing_exempt ? 'Free / managed' : o.stripe_subscription_id ? 'Business (Stripe)' : '—'}</td>
                 <td>{used(o.employees, o.max_employees)}</td>
                 <td>{used(o.users, o.max_users)}</td>
                 <td className="small">{d(o.current_period_end)}</td>

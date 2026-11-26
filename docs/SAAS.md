@@ -7,7 +7,7 @@
   in the web app, the employee portal and the mobile app alike.
 * **The existing company (Derivion)** became the first organization, slug `derivion`. It is *billing exempt*
   (grandfathered: everything stays unlocked, no Stripe needed) and every login keeps its role.
-* **Web only:** registration, email verification, onboarding, plan + add-on selection, Stripe Checkout,
+* **Web only:** registration, email verification, onboarding, public pricing page, Stripe Checkout (one plan),
   subscription / billing / invoices, Contact Sales, ownership transfer. The mobile app only logs in, checks the
   organization is active, and hides features the plan does not include.
 
@@ -15,7 +15,7 @@
 
 | Role | Can |
 |---|---|
-| Owner | Everything, incl. billing, add-ons and ownership transfer. The person who registered. |
+| Owner | Everything, incl. billing, features and ownership transfer. The person who registered. |
 | Admin | Organization admin: settings, templates, all HR work, user access. No billing. (Existing Derivion admins.) |
 | HR Admin | Employees, attendance, payroll, leave, documents. Invites / manages **team leaders and employees**. |
 | HR Editor | HR work, no user management (existing logins). |
@@ -42,9 +42,10 @@ role at all (`scripts/make-platform-admin.mjs` on the server is the only way). T
 
 Stripe is the only payment provider. Nothing is hardcoded: keys and price ids come from the server environment.
 
-1. **Products and prices** (Dashboard → Product catalog), all *recurring*, same currency and interval:
-   base plan → `STRIPE_BASE_PRICE_ID`; optional add-ons → `STRIPE_ADDON_PAYROLL_PRICE_ID`,
-   `STRIPE_ADDON_DOCUMENTS_PRICE_ID`, `STRIPE_ADDON_EMAIL_PRICE_ID` (blank = not offered).
+1. **Plan price (optional).** There is one plan, *Business*: ₹2,499 / month, unlimited employees, every feature
+   (`PLAN` in `lib/billing/catalog.ts`). With `STRIPE_PRICE_ID` blank, checkout charges exactly that. To manage the
+   price in Stripe instead, create a recurring INR price (Product catalog) and set `STRIPE_PRICE_ID`; the pricing
+   page and Billing then show the Stripe amount.
 2. **API keys** → `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`. Test keys on staging, live keys on production.
    The server refuses mismatched test/live keys, and test keys on a production server unless `STRIPE_MODE=test`.
    Each organization's Stripe customer is remembered per mode, so test data never mixes with live data.
@@ -65,11 +66,17 @@ Local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook` pr
 
 ### Subscription lifecycle
 
-1. Owner registers → organization `pending_payment`, owner verifies their email, logs in, lands on **Billing**.
-2. Owner picks add-ons → server creates / reuses the Stripe Customer and a Checkout Session (base + add-ons).
-3. Stripe hosted checkout. The success redirect only shows "confirming payment…"; **it unlocks nothing**.
+1. Visitor opens **/pricing** (linked from the login page) → *Get started* → **/register?plan=business**.
+   Registering creates the organization (`pending_payment`), emails a verification link and returns a signed
+   24-hour checkout token (`lib/billing/checkout-token.ts`): it can only start a Stripe Checkout for that organization.
+   With `?plan` the owner goes straight to Stripe; without it, the registration shows the pricing card next
+   (*Subscribe & pay* or *I'll pay later* → log in later and subscribe from **Billing**).
+2. Stripe hosted checkout → **/billing/success** (re-reads the session from the Stripe API and syncs the
+   subscription, so it is active without waiting for the webhook) or **/billing/failed** (cancelled / expired /
+   not completed, with *Try again*). The redirect itself unlocks nothing.
+3. The owner verifies their email and logs in normally.
 4. Stripe sends signed webhooks → signature verified → event id stored (duplicates are ignored, failed events are
-   retried by Stripe) → the subscription is **re-read from the Stripe API** → status, period, add-ons saved.
+   retried by Stripe) → the subscription is **re-read from the Stripe API** → status, period, card on file saved.
 5. The organization is `active` only when Stripe reports the subscription `active` (i.e. paid). Then the owner
    does onboarding and invites people; employees can use the mobile app.
 
@@ -83,10 +90,11 @@ Local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook` pr
 | incomplete_expired | expired | no |
 | paused | paused | no |
 
-Add-ons on an existing subscription: added ones are charged immediately (prorated) with
-`payment_behavior=pending_if_incomplete`, so **they switch on only if that payment succeeds**; removed ones stop at
-once and are credited on the next invoice. Cancellation, card changes and resuming happen in the Stripe portal and
-arrive through webhooks. Payment failures email the owner.
+**Billing** (owner; admins can look) shows the plan and its tracking: status, subscribed since, current period with
+days left, next payment and date, total paid, card on file, and every invoice with receipts. *Cancel subscription*
+cancels at the period end (access stays until then; *Resume* undoes it); card changes open the Stripe portal.
+**Features**: every feature is included; owner / admin switch optional ones off for the whole organization
+(`organizations.disabled_features`). A feature the platform admin set to *Off* stays off. Payment failures email the owner.
 
 ### Platform admin (`/admin`)
 

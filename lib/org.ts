@@ -1,5 +1,5 @@
 // Organization status and entitlements. Pure functions: safe on the server and in the browser.
-import { ALL_FEATURES, BASE_FEATURES, isFeature, type Feature } from './billing/catalog';
+import { ALL_FEATURES, OPTIONAL_FEATURES, isFeature, type Feature } from './billing/catalog';
 
 export type OrgStatus = 'pending_payment' | 'active' | 'past_due' | 'unpaid' | 'canceled' | 'expired' | 'paused' | 'suspended';
 
@@ -19,7 +19,7 @@ export interface Org {
   stripe_subscription_id: string | null;
   stripe_subscription_status: string | null;
   stripe_base_price_id: string | null;
-  stripe_items: { id: string; price: string; quantity: number; feature: string | null }[];
+  stripe_items: { id: string; price: string; quantity: number; feature: string | null; amount?: number | null; currency?: string; interval?: string | null }[];
   addons: string[];
   current_period_start: string | null;
   current_period_end: string | null;
@@ -31,6 +31,12 @@ export interface Org {
   last_payment_error: string | null;
   stripe_synced_at: string | null;
   entitlement_overrides: { grant?: string[]; revoke?: string[] };
+  /** features the organization switched off itself (Billing → Features) */
+  disabled_features: string[] | null;
+  /** when the Stripe subscription started (first payment) */
+  subscription_started_at: string | null;
+  /** the card / method Stripe charges, e.g. "Visa •••• 4242 (exp 04/28)" */
+  payment_method: string | null;
   /** plan limits set by the platform admin; null = unlimited */
   max_employees: number | null;
   max_users: number | null;
@@ -63,12 +69,15 @@ export const STATUS_LABEL: Record<OrgStatus, string> = {
 export const orgHasAccess = (o: Pick<Org, 'status' | 'billing_exempt'>) =>
   o.status !== 'suspended' && (o.billing_exempt || o.status === 'active' || o.status === 'past_due');
 
-/** Features the organization may use right now: base + purchased add-ons (+/- platform overrides). Exempt = all. */
-export function orgFeatures(o: Pick<Org, 'status' | 'billing_exempt' | 'addons' | 'entitlement_overrides'>): Feature[] {
+/**
+ * Features the organization may use right now. The plan includes every feature; the platform admin can block
+ * one (entitlement_overrides.revoke) and the organization can switch optional ones off itself (disabled_features).
+ */
+export function orgFeatures(o: Pick<Org, 'status' | 'billing_exempt' | 'entitlement_overrides'> & { disabled_features?: string[] | null }): Feature[] {
   if (!orgHasAccess(o)) return [];
-  const set = new Set<Feature>(o.billing_exempt ? ALL_FEATURES : [...BASE_FEATURES, ...(o.addons ?? []).filter(isFeature)]);
-  for (const g of o.entitlement_overrides?.grant ?? []) if (isFeature(g)) set.add(g);
+  const set = new Set<Feature>(ALL_FEATURES);
   for (const r of o.entitlement_overrides?.revoke ?? []) if (isFeature(r)) set.delete(r);
+  for (const d of o.disabled_features ?? []) if (isFeature(d) && OPTIONAL_FEATURES.includes(d)) set.delete(d);
   return ALL_FEATURES.filter(f => set.has(f));
 }
 

@@ -3,7 +3,7 @@
 // or a browser redirect, so events can arrive late, twice or out of order without harm.
 import type Stripe from 'stripe';
 import { supabaseAdmin } from '../supabase/admin';
-import { basePriceId, featureOfPrice, liveMode, stripe } from '../stripe';
+import { basePriceId, liveMode, stripe } from '../stripe';
 import { statusFromStripe, type Org } from '../org';
 
 const TERMINAL = new Set(['canceled', 'incomplete_expired']);
@@ -45,7 +45,7 @@ export async function orgForStripe(customerId: string | null, metadataOrgId?: st
  * Access is granted only for Stripe's paid states (see statusFromStripe). Returns the new status.
  */
 export async function syncSubscription(org: Org, subscriptionId: string, source: string): Promise<string | null> {
-  const sub = await stripe().subscriptions.retrieve(subscriptionId, { expand: ['items.data.price'] });
+  const sub = await stripe().subscriptions.retrieve(subscriptionId, { expand: ['items.data.price', 'default_payment_method'] });
   const customer = idOf(sub.customer);
   if (org.stripe_customer_id && customer !== org.stripe_customer_id) {
     console.warn(`stripe sync: subscription ${sub.id} belongs to customer ${customer}, not org ${org.id}`);
@@ -56,15 +56,15 @@ export async function syncSubscription(org: Org, subscriptionId: string, source:
     const keepCurrent = !(org.stripe_subscription_status && TERMINAL.has(org.stripe_subscription_status)) && TERMINAL.has(sub.status);
     if (keepCurrent) return org.stripe_subscription_status;
   }
-  const items = sub.items.data.map(i => ({ id: i.id, price: i.price.id, quantity: i.quantity ?? 1, feature: featureOfPrice(i.price.id) }));
-  const base = items.find(i => i.price === basePriceId()) ?? items.find(i => !i.feature) ?? null;
-  const addons = [...new Set(items.map(i => i.feature).filter((f): f is NonNullable<typeof f> => !!f))];
+  const items = sub.items.data.map(i => ({ id: i.id, price: i.price.id, quantity: i.quantity ?? 1, feature: null, amount: i.price.unit_amount, currency: i.price.currency, interval: i.price.recurring?.interval ?? null }));
+  const base = items.find(i => i.price === basePriceId()) ?? items[0] ?? null;
   const status = org.status === 'suspended' ? 'suspended' : statusFromStripe(sub.status);
 
   const patch = {
     stripe_customer_id: customer, stripe_livemode: sub.livemode,
     stripe_subscription_id: sub.id, stripe_subscription_status: sub.status, stripe_base_price_id: base?.price ?? null,
-    stripe_items: items, addons: TERMINAL.has(sub.status) ? [] : addons, status,
+    stripe_items: items, addons: [], status,
+    subscription_started_at: ts(sub.start_date), payment_method: paymentMethodLabel(sub.default_payment_method),
     current_period_start: ts(sub.current_period_start), current_period_end: ts(sub.current_period_end),
     cancel_at_period_end: sub.cancel_at_period_end, cancel_at: ts(sub.cancel_at), canceled_at: ts(sub.canceled_at), ended_at: ts(sub.ended_at),
     stripe_synced_at: new Date().toISOString(),
@@ -74,6 +74,13 @@ export async function syncSubscription(org: Org, subscriptionId: string, source:
   if (error) throw new Error(`could not save subscription: ${error.message}`);
 
   return status;
+}
+
+/** "Visa •••• 4242 (exp 04/28)", "UPI", … — for display only; Stripe keeps the details. */
+function paymentMethodLabel(pm: string | Stripe.PaymentMethod | null): string | null {
+  if (!pm || typeof pm === 'string') return null;
+  if (pm.card) return `${pm.card.brand[0].toUpperCase()}${pm.card.brand.slice(1)} •••• ${pm.card.last4} (exp ${String(pm.card.exp_month).padStart(2, '0')}/${String(pm.card.exp_year).slice(-2)})`;
+  return pm.type.replace(/_/g, ' ').toUpperCase();
 }
 
 /** Stores / updates one invoice for the payment history. */

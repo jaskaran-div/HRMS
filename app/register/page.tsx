@@ -4,6 +4,13 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Icon } from '@/components/Icon';
 import { Spinner } from '@/components/ui';
+import { PricingCard } from '@/components/PricingCard';
+import { startCheckout, TOKEN_KEY } from '@/lib/billing/start-checkout';
+
+function Steps({ at }: { at: 1 | 2 | 3 }) {
+  const s = (n: number, label: string) => <span className={n === at ? 'on' : n < at ? 'done' : ''}><i>{n < at ? '✓' : n}</i>{label}</span>;
+  return <div className="steps">{s(1, 'Organization details')}{s(2, 'Payment')}{s(3, 'Verify email & log in')}</div>;
+}
 
 /** Web-only organization registration. The registrant becomes the organization's owner. */
 export default function RegisterPage() {
@@ -11,7 +18,10 @@ export default function RegisterPage() {
   const [again, setAgain] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [done, setDone] = useState<{ emailed: boolean; mailError?: string } | null>(null);
+  const [done, setDone] = useState<{ emailed: boolean; mailError?: string; token?: string } | null>(null);
+  const [payLater, setPayLater] = useState(false);
+  const [payError, setPayError] = useState('');
+  const [paying, setPaying] = useState(false);
   const [resent, setResent] = useState('');
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
 
@@ -23,10 +33,22 @@ export default function RegisterPage() {
       const r = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setError(j.error ?? 'Could not register.'); setBusy(false); return; }
-      setDone({ emailed: !!j.emailed, mailError: j.mailError });
+      const token: string | undefined = j.checkoutToken;
+      if (token) sessionStorage.setItem(TOKEN_KEY, token);
+      setDone({ emailed: !!j.emailed, mailError: j.mailError, token });
+      // came from the pricing card ("Get started"): go straight to payment
+      if (token && new URLSearchParams(window.location.search).get('plan')) { await pay(token); return; }
     } catch {
       setError('Could not reach the server. Check your internet connection.');
     }
+    setBusy(false);
+  }
+
+  async function pay(token = done?.token) {
+    if (!token) { setPayError('Log in to subscribe from Billing.'); return; }
+    setPaying(true); setPayError('');
+    setPayError(await startCheckout(token));
+    setPaying(false);
     setBusy(false);
   }
 
@@ -36,11 +58,28 @@ export default function RegisterPage() {
     setResent(j.message ?? j.error ?? 'Sent.');
   }
 
+  if (done && !payLater) return (
+    <div className="login-wrap">
+      <div className="public-card">
+        <Steps at={2} />
+        <h1>Subscribe to start using {f.org_name || 'your organization'}</h1>
+        <p className="sub">Your organization is created. Pay securely with Stripe to activate it; we also emailed a verification link to <b>{f.email}</b>.</p>
+        {payError && <p className="err-line" role="alert"><Icon name="alert" size={16} />{payError}</p>}
+        <PricingCard compact>
+          <button className="btn primary" onClick={() => pay()} disabled={paying || !done.token}>{paying ? <><Spinner size={16} /> Opening secure payment…</> : 'Subscribe & pay'}</button>
+          <button className="btn" onClick={() => setPayLater(true)} disabled={paying}>I’ll pay later</button>
+        </PricingCard>
+        <p className="foot">Payments are processed by Stripe; we never see your card. Questions? <Link href="/contact-sales">Contact Sales</Link></p>
+      </div>
+    </div>
+  );
+
   if (done) return (
     <div className="login-wrap">
       <div className="public-card">
+        <Steps at={3} />
         <h1>Check your inbox</h1>
-        <p className="sub">We sent a verification link to <b>{f.email}</b>. Open it to confirm your email, then log in to choose your plan.</p>
+        <p className="sub">We sent a verification link to <b>{f.email}</b>. Open it to confirm your email, then log in — you can subscribe any time from Billing.</p>
         {!done.emailed && <p className="note warn">{done.mailError}</p>}
         <div className="row">
           <button className="btn" onClick={resend}>Resend the link</button>
@@ -54,8 +93,9 @@ export default function RegisterPage() {
   return (
     <div className="login-wrap">
       <div className="public-card">
+        <Steps at={1} />
         <h1>Register your organization</h1>
-        <p className="sub">You become the organization’s owner. After verifying your email you choose a plan and pay securely with Stripe; then you invite your HR team and employees.</p>
+        <p className="sub">You become the organization’s owner. Next you subscribe to the <Link href="/pricing">Business plan</Link> and pay securely with Stripe, verify your email, and log in to invite your HR team and employees.</p>
         {error && <p className="err-line" role="alert"><Icon name="alert" size={16} />{error}</p>}
         <form onSubmit={submit}>
           <label>Organization name<input value={f.org_name} onChange={set('org_name')} required minLength={2} autoFocus /></label>
@@ -72,7 +112,7 @@ export default function RegisterPage() {
           </div>
           {/* honeypot: hidden from people, filled by bots */}
           <div className="hp" aria-hidden="true"><label>Website<input tabIndex={-1} autoComplete="off" value={f.website} onChange={set('website')} /></label></div>
-          <button className="btn primary" disabled={busy}>{busy ? <><Spinner size={16} /> Creating…</> : 'Create organization'}</button>
+          <button className="btn primary" disabled={busy}>{busy ? <><Spinner size={16} /> Creating…</> : 'Create organization & continue'}</button>
         </form>
         <p className="foot">Already registered? <Link href="/login">Log in</Link> · Large team or special needs? <Link href="/contact-sales">Contact Sales</Link></p>
       </div>

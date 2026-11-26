@@ -7,6 +7,7 @@ import { useApp, useAppOptional } from './AppContext';
 import { Icon } from './Icon';
 import { TopProgress } from './ui';
 import { initials } from '@/lib/format';
+import { fmtDate } from '@/lib/dates';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { ROLE_LABEL } from '@/lib/roles';
 import type { Feature } from '@/lib/billing/catalog';
@@ -205,7 +206,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
       nav={NAV.filter(n => (!n.edit || canEdit) && (!n.feature || has(n.feature)))}
       adminNav={ADMIN_NAV.filter(n => (n.who === 'admin' ? isAdmin : n.who === 'users' ? canManageUsers : isOwner || isAdmin) && (!n.feature || has(n.feature)))}
       panelName="HR Portal" search={search}
-      banner={org.pastDue ? <div className="note warn" style={{ marginBottom: 12 }}>The last subscription payment failed. Stripe is retrying; {isOwner ? <Link href="/billing">update the payment method in Billing</Link> : 'ask the owner to update the payment method'} to avoid losing access.</div> : null}
+      banner={org.pastDue ? <div className="note warn" style={{ marginBottom: 12 }}>The last subscription payment failed. Stripe is retrying; {isOwner ? <Link href="/billing">update the payment method in Billing</Link> : 'ask the owner to update the payment method'} to avoid losing access.</div>
+        : org.cancelAtPeriodEnd && org.periodEnd && isOwner ? <div className="note warn" style={{ marginBottom: 12 }}>Your subscription is cancelled and ends on {fmtDate(org.periodEnd.slice(0, 10))}. <Link href="/billing">Resume it in Billing</Link> to keep access.</div> : null}
       bell={{ count: pending, href: '/leaves', label: pending ? `${pending} leave request(s) waiting for HR` : 'No leave requests waiting' }}
       menu={<>
         <div className="mi-head"><b>{profile.full_name}</b><small>{profile.username}</small></div>

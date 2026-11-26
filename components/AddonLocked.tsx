@@ -3,17 +3,16 @@
 import Link from 'next/link';
 import { useApp } from './AppContext';
 import { Empty } from './ui';
-import { ADDONS, FEATURE_LABEL, type Feature } from '@/lib/billing/catalog';
+import { FEATURE_DESCRIPTION, FEATURE_LABEL, type Feature } from '@/lib/billing/catalog';
 
-/** Shown instead of a page whose add-on the organization has not bought. */
+/** Shown instead of a page whose feature the organization has switched off. */
 export function AddonLocked({ feature }: { feature: Feature }) {
-  const { isOwner } = useApp();
-  const addon = ADDONS.find(a => a.feature === feature);
+  const { isOwner, isAdmin } = useApp();
   return (
     <div className="card">
-      <Empty icon="lock" title={`${FEATURE_LABEL[feature]} is an add-on`}>
-        {addon?.description}{' '}
-        {isOwner ? <Link href="/billing">Add it in Billing</Link> : 'Ask your organization’s owner to add it in Billing.'}
+      <Empty icon="lock" title={`${FEATURE_LABEL[feature]} is switched off`}>
+        {FEATURE_DESCRIPTION[feature]}{' '}
+        {isOwner || isAdmin ? <Link href="/billing">Switch it on in Billing → Features</Link> : 'Ask your organization’s owner or admin to switch it on.'}
       </Empty>
     </div>
   );

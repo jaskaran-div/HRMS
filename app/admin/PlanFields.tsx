@@ -1,6 +1,6 @@
 'use client';
 
-import { ADDONS, ALL_FEATURES, BASE_FEATURES, FEATURE_LABEL, type Feature } from '@/lib/billing/catalog';
+import { ALL_FEATURES, FEATURE_DESCRIPTION, FEATURE_LABEL, type Feature } from '@/lib/billing/catalog';
 
 export type FeatureChoice = 'plan' | 'on' | 'off';
 export interface Plan {
@@ -18,11 +18,10 @@ export const planFrom = (o: { billing_exempt: boolean; entitlement_overrides?: {
   max_users: o?.max_users?.toString() ?? '',
 });
 
-/** What a feature is when left on "plan": exempt = everything; Stripe = base included, add-ons only if bought. */
-function planDefault(f: Feature, billing: Plan['billing'], bought: string[]) {
-  if (billing === 'exempt') return 'included (free / managed plan)';
-  if (BASE_FEATURES.includes(f)) return 'included in the base plan';
-  return bought.includes(f) ? 'bought as an add-on' : 'add-on, not bought';
+/** What a feature is when left on "plan": the plan includes everything; the organization may switch it off itself. */
+function planDefault(f: Feature, billing: Plan['billing'], orgOff: string[]) {
+  const base = billing === 'exempt' ? 'included (free / managed plan)' : 'included in the plan';
+  return orgOff.includes(f) ? `${base}, switched off by the organization` : base;
 }
 
 export function PlanFields({ plan, onChange, bought = [], usage }: {
@@ -59,12 +58,12 @@ export function PlanFields({ plan, onChange, bought = [], usage }: {
         </label>
       </div>
       <h4 style={{ margin: '18px 0 4px' }}>Features</h4>
-      <p className="muted small" style={{ marginTop: 0 }}><b>Plan</b> = follow the billing plan · <b>On</b> = always allowed (no payment needed) · <b>Off</b> = blocked even if paid.</p>
+      <p className="muted small" style={{ marginTop: 0 }}><b>Plan</b> / <b>On</b> = included (the organization can still switch it off itself) · <b>Off</b> = blocked by the platform, even if paid.</p>
       {ALL_FEATURES.map(f => (
         <div key={f} className="feat-row">
           <div>
             <b>{FEATURE_LABEL[f]}</b>
-            <div className="muted small">{ADDONS.find(a => a.feature === f)?.description ?? 'Core HRMS feature.'} — {planDefault(f, plan.billing, bought)}</div>
+            <div className="muted small">{FEATURE_DESCRIPTION[f]} — {planDefault(f, plan.billing, bought)}</div>
           </div>
           <div className="seg" role="radiogroup" aria-label={FEATURE_LABEL[f]}>
             {(['plan', 'on', 'off'] as FeatureChoice[]).map(v => (

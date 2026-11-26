@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { clientIp } from '@/lib/auth';
 import { rateLimit } from '@/lib/rate-limit';
 import { createOrganization, EMAIL_RE, sendOwnerVerification } from '@/lib/registration';
+import { checkoutToken } from '@/lib/billing/checkout-token';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,5 +38,6 @@ export async function POST(req: Request) {
   const { userId, orgId } = r;
 
   const mail = await sendOwnerVerification({ userId, orgId, email, name: fullName, orgName, req });
-  return NextResponse.json({ ok: true, emailed: mail.ok, ...(mail.ok ? {} : { mailError: 'We could not send the verification email yet. Use “Resend” in a minute.' }) });
+  // lets the new owner pay right away (Stripe Checkout only), before verifying and logging in
+  return NextResponse.json({ ok: true, emailed: mail.ok, checkoutToken: checkoutToken(orgId), ...(mail.ok ? {} : { mailError: 'We could not send the verification email yet. Use “Resend” in a minute.' }) });
 }
