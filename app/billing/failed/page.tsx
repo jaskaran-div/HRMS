@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Icon } from '@/components/Icon';
 import { supabaseServer } from '@/lib/supabase/server';
 import { RetryPayment } from './RetryPayment';
+import { PublicNav } from '@/components/PublicNav';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,8 @@ export default async function CheckoutFailed({ searchParams }: { searchParams: P
   const w = WHY[reason ?? ''] ?? WHY.failed;
   const { data: { user } } = await (await supabaseServer()).auth.getUser();
   return (
+    <div className="pub">
+    <PublicNav />
     <div className="login-wrap">
       <div className="public-card">
         <div className="result-icon bad"><Icon name="x" size={28} /></div>
@@ -27,6 +30,7 @@ export default async function CheckoutFailed({ searchParams }: { searchParams: P
         <RetryPayment loggedIn={!!user} />
         <p className="foot">Need help paying? <Link href="/contact-sales">Contact Sales</Link></p>
       </div>
+    </div>
     </div>
   );
 }

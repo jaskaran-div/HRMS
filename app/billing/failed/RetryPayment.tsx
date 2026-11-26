@@ -24,8 +24,12 @@ export function RetryPayment({ loggedIn }: { loggedIn: boolean }) {
       {canRetry
         ? <button className="btn primary" onClick={retry} disabled={busy}>{busy ? <><Spinner size={16} /> Opening secure payment…</> : 'Try the payment again'}</button>
         : <Link className="btn primary" href="/login">Log in to subscribe</Link>}
-      {loggedIn && <Link className="btn" href="/billing">Back to Billing</Link>}
-      <Link className="btn" href="/pricing">See the plan</Link>
+      {loggedIn
+        ? <Link className="btn" href="/billing">Back to Billing</Link>
+        : <>
+          {canRetry && <Link className="btn" href="/login">Go to login</Link>}
+          <p className="muted small" style={{ margin: 0, textAlign: 'center' }}>Your organization is saved. You can verify your email, log in and pay later from Billing.</p>
+        </>}
     </div>
   );
 }

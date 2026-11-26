@@ -11,6 +11,7 @@ import { fmtDate } from '@/lib/dates';
 import { money } from '@/lib/money';
 import { PLAN } from '@/lib/billing/catalog';
 import { ResendVerification } from '@/app/verify-email/ResendVerification';
+import { PublicNav } from '@/components/PublicNav';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +53,7 @@ export default async function CheckoutSuccess({ searchParams }: { searchParams: 
   const invoice = typeof session.invoice === 'object' ? session.invoice : null;
 
   if (!paid) return (
+    <div className="pub">{!loggedIn && <PublicNav />}
     <div className="login-wrap">
       {tries < 20 && <meta httpEquiv="refresh" content={`4;url=/billing/success?session_id=${session_id}&n=${tries + 1}`} />}
       <div className="public-card">
@@ -65,9 +67,11 @@ export default async function CheckoutSuccess({ searchParams }: { searchParams: 
         {tries >= 20 && <p className="note">Still waiting. You can safely close this page: your organization switches on as soon as the payment is confirmed. <Link href="/contact-sales">Contact us</Link> if it doesn’t within an hour.</p>}
       </div>
     </div>
+    </div>
   );
 
   return (
+    <div className="pub">{!loggedIn && <PublicNav />}
     <div className="login-wrap">
       <div className="public-card">
         <div className="result-icon ok"><Icon name="check" size={30} /></div>
@@ -96,6 +100,7 @@ export default async function CheckoutSuccess({ searchParams }: { searchParams: 
           </>
         )}
       </div>
+    </div>
     </div>
   );
 }

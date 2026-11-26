@@ -12,7 +12,7 @@ export const OPTIONAL_FEATURES: Feature[] = ALL_FEATURES.filter(f => f !== 'empl
 
 export const FEATURE_LABEL: Record<Feature, string> = {
   employees: 'Employees', attendance: 'Attendance & check-in', leave: 'Leave', mobile: 'Mobile app', notifications: 'Notifications',
-  teams: 'Teams & hierarchy', payroll: 'Payroll & Payslips', documents: 'Documents', email_center: 'Email Center',
+  teams: 'Teams & hierarchy', payroll: 'Payslips', documents: 'Documents', email_center: 'Email Center',
 };
 
 export const FEATURE_DESCRIPTION: Record<Feature, string> = {
@@ -22,7 +22,7 @@ export const FEATURE_DESCRIPTION: Record<Feature, string> = {
   mobile: 'The Android app for employees and team leaders.',
   notifications: 'Push and email notifications for approvals and reminders.',
   teams: 'Teams, team leaders and reporting lines.',
-  payroll: 'Salary from attendance, payslip PDFs, payslips in the employee panel and the app.',
+  payroll: 'Payslip PDFs for every employee, in the employee panel and the app.',
   documents: 'Company and employee documents, shared with each employee.',
   email_center: 'Email templates and one-off emails to employees with attachments.',
 };
@@ -40,7 +40,7 @@ export const PLAN = {
     'Unlimited HR and team leader logins',
     'Attendance, shifts and check-in from app, web, location or Wi-Fi',
     'Leave, half days and approvals',
-    'Payroll and payslip PDFs',
+    'Payslips for every employee (PDF)',
     'Documents and Email Center',
     'Android app for employees',
     'Switch any feature on or off yourself',
