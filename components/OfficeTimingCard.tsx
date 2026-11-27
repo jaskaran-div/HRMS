@@ -20,6 +20,7 @@ type Emp = Pick<Employee, 'id' | 'shift_id'>;
 interface TF {
   office_start_time: string; late_grace_until: string; late_allowed_per_month: string; checkin_close_time: string;
   second_half_start: string; morning_short_back: string; office_end_time: string; checkout_by: string; checkin_extra_min: string;
+  early_checkout_before: string;
 }
 
 const NO_SHIFT = 'none';
@@ -32,6 +33,7 @@ function formOf(r: Partial<Settings> | ShiftRules | null | undefined, end: strin
     checkin_close_time: hm(r?.checkin_close_time ?? '11:00'), second_half_start: hm(r?.second_half_start ?? '14:00'),
     morning_short_back: hm(r?.morning_short_back ?? '12:30'), office_end_time: hm(end ?? '19:00'), checkout_by: hm(r?.checkout_by),
     checkin_extra_min: String(r?.checkin_extra_min ?? 60),
+    early_checkout_before: hm(r && 'early_checkout_before' in r ? r.early_checkout_before : '17:30'),
   };
 }
 
@@ -40,7 +42,7 @@ function rulesOf(f: TF): { ok: true; rules: Required<ShiftRules>; end: string | 
   const start = toMinutes(f.office_start_time), grace = toMinutes(f.late_grace_until);
   const lateAllowed = Math.round(num(f.late_allowed_per_month));
   const close = toMinutes(f.checkin_close_time), second = toMinutes(f.second_half_start), shortBack = toMinutes(f.morning_short_back);
-  const end = toMinutes(f.office_end_time), outBy = toMinutes(f.checkout_by);
+  const end = toMinutes(f.office_end_time), outBy = toMinutes(f.checkout_by), earlyOut = toMinutes(f.early_checkout_before);
   const extra = Math.round(num(f.checkin_extra_min));
   const bad = (error: string) => ({ ok: false as const, error });
   if (f.office_start_time && start == null) return bad('Pick a valid check-in-by time.');
@@ -55,6 +57,7 @@ function rulesOf(f: TF): { ok: true; rules: Required<ShiftRules>; end: string | 
     if (shortBack < start) return bad('The morning short leave return time cannot be before the check-in-by time.');
     if (end <= start) return bad('The office end time must be after the check-in-by time.');
     if (outBy != null && outBy < end) return bad('"Check out by" cannot be before the office end time.');
+    if (earlyOut != null && (earlyOut <= start || earlyOut > end)) return bad('"Half day if checked out before" must be after the check-in-by time and no later than the office end time.');
   }
   const t = (v: string, m: number | null) => (start != null && m != null ? v : null);
   return {
@@ -63,7 +66,7 @@ function rulesOf(f: TF): { ok: true; rules: Required<ShiftRules>; end: string | 
       office_start_time: start != null ? f.office_start_time : null, late_grace_until: t(f.late_grace_until, grace),
       late_allowed_per_month: lateAllowed, checkin_close_time: t(f.checkin_close_time, close),
       second_half_start: t(f.second_half_start, second), morning_short_back: t(f.morning_short_back, shortBack),
-      checkin_extra_min: extra, checkout_by: t(f.checkout_by, outBy),
+      checkin_extra_min: extra, checkout_by: t(f.checkout_by, outBy), early_checkout_before: t(f.early_checkout_before, earlyOut),
     },
     end: end != null ? f.office_end_time : null,
   };
@@ -80,6 +83,7 @@ function moved(r: ShiftRules, d: number): ShiftRules {
   return {
     ...r, office_start_time: mv(r.office_start_time), late_grace_until: mv(r.late_grace_until), checkin_close_time: mv(r.checkin_close_time),
     second_half_start: mv(r.second_half_start), morning_short_back: mv(r.morning_short_back), checkout_by: mv(r.checkout_by),
+    early_checkout_before: mv(r.early_checkout_before),
   };
 }
 
@@ -222,6 +226,10 @@ export function OfficeTimingCard() {
             <TimePicker value={f.checkout_by} clearable placeholder="Check-out not required" disabled={off} onChange={v => setF({ checkout_by: v })} />
             <span className="hint">Check-out is mandatory and allowed until this. Not checked out by then = Half day.</span>
           </div>
+          <div className="lbl">Half day if checked out before
+            <TimePicker value={f.early_checkout_before} clearable placeholder="No early check-out rule" disabled={off} onChange={v => setF({ early_checkout_before: v })} />
+            <span className="hint">Checking out before this = Half day (skipped on an evening short leave / half day).</span>
+          </div>
           <label>Extra check-in allowance (minutes)
             <input type="number" min={0} max={240} step={5} value={f.checkin_extra_min} onChange={set('checkin_extra_min')} disabled={off} />
             <span className="hint">Added after the second half start and the short leave return time.</span>
@@ -239,6 +247,7 @@ export function OfficeTimingCard() {
             <div><span className="t">Not checked in by {fmtTime(w.deadline)}</span><span className="pill bad">Absent</span></div>
             <div><span className="t">Morning short leave</span><span className="pill blue">Short leave</span><span className="muted small">if checked in by {fmtTime(w.shortUntil)}</span></div>
             <div><span className="t">Morning half day</span><span className="pill bad">Half day</span><span className="muted small">if checked in by {fmtTime(w.deadline)}</span></div>
+            {w.earlyOut != null && <div><span className="t">Checked out before {fmtTime(w.earlyOut)}</span><span className="pill bad">Half day</span><span className="muted small">unless on an evening short leave / half day</span></div>}
             {w.checkoutBy != null && <div><span className="t">Not checked out by {fmtTime(w.checkoutBy)}</span><span className="pill bad">Half day</span><span className="muted small">check-out closes then</span></div>}
           </div>
         )}
@@ -310,6 +319,6 @@ function formRules(s: Settings): ShiftRules {
   return {
     office_start_time: s.office_start_time ?? null, late_grace_until: s.late_grace_until ?? null, late_allowed_per_month: s.late_allowed_per_month ?? 3,
     checkin_close_time: s.checkin_close_time ?? null, second_half_start: s.second_half_start ?? null, morning_short_back: s.morning_short_back ?? null,
-    checkin_extra_min: s.checkin_extra_min ?? 60, checkout_by: s.checkout_by ?? null,
+    checkin_extra_min: s.checkin_extra_min ?? 60, checkout_by: s.checkout_by ?? null, early_checkout_before: s.early_checkout_before ?? null,
   };
 }

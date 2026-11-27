@@ -502,6 +502,9 @@ alter table public.attendance add column if not exists half_leave_days numeric(4
 alter table public.settings add column if not exists office_end_time time default '19:00';
 alter table public.settings add column if not exists checkout_by time default '20:00';
 alter table public.attendance_punches add column if not exists out_missed boolean not null default false;
+-- Early check-out: checked out before early_checkout_before = the day becomes a Half day (an evening short leave /
+-- half day that day is skipped). null = no early check-out rule. Shifts carry their own in rules.early_checkout_before.
+alter table public.settings add column if not exists early_checkout_before time default '17:30';
 
 -- Shifts: an employee on a shift gets every check-in / check-out window moved with the shift
 -- (same offsets as the company office timing). No shift = the company office timing.

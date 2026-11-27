@@ -70,6 +70,8 @@ export interface Settings {
   office_end_time?: string | null;
   /** Check-out is allowed until this; checked in but not out by then = Half day. */
   checkout_by?: string | null;
+  /** Checked out before this = Half day (null = no early check-out rule). */
+  early_checkout_before?: string | null;
 }
 
 /** A work shift. Its employees follow its own timing rules (`rules`); end_time is its office end time. */
@@ -84,7 +86,7 @@ export interface Shift {
 }
 
 export type ShiftRules = Partial<Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month' | 'checkin_close_time'
-  | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'checkout_by'>>;
+  | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'checkout_by' | 'early_checkout_before'>>;
 
 /** An office Wi-Fi: its name (for people) and the public IP address (or /range) the office internet leaves from. */
 export interface OfficeNetwork { name: string; ip: string }

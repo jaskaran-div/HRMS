@@ -522,6 +522,15 @@ test('each shift has its own timing: check in by 10:15 = Present even on a 10:00
   assert.equal(decideCheckOut(at('23:50'), S).ok, true);
   assert.equal(decideCheckOut(at('23:56'), S).ok, false);
   assert.equal(decideCheckOut(at('23:30'), { ...S, checkout_by: null }).ok, true); // no check-out rule
+  // early check-out: before 5:30 PM = half day, from 5:30 PM on = as marked
+  const E = { ...S, early_checkout_before: '17:30' };
+  const half = (d: ReturnType<typeof decideCheckOut>) => (d.ok ? d.half : 'blocked');
+  assert.equal(half(decideCheckOut(at('16:00'), E)), true);
+  assert.equal(half(decideCheckOut(at('17:29'), E)), true);
+  assert.equal(half(decideCheckOut(at('17:30'), E)), false);
+  assert.equal(half(decideCheckOut(at('19:00'), E)), false);
+  assert.equal(half(decideCheckOut(at('16:00'), S)), false); // no early check-out rule
+  assert.equal(half(decideCheckOut(at('16:00'), E, { ...evening, rules: { ...evening.rules, early_checkout_before: '18:00' } })), true);
   // a shift can turn the rule off for its employees
   assert.equal(windows(S, { ...evening, rules: { ...evening.rules, office_start_time: null } }), null);
 });

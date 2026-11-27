@@ -26,11 +26,11 @@ export function fmtTime(t: string | number | null | undefined): string {
 }
 
 export type LateRules = Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month'>
-  & Partial<Pick<Settings, 'checkin_close_time' | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'office_end_time' | 'checkout_by'>>;
+  & Partial<Pick<Settings, 'checkin_close_time' | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'office_end_time' | 'checkout_by' | 'early_checkout_before'>>;
 
 /** The timing rules a shift (or the company default) has. Times are 'HH:MM[:SS]'; office_start_time = check in by. */
 export type TimingRules = Pick<Settings, 'office_start_time' | 'late_grace_until' | 'late_allowed_per_month' | 'checkin_close_time'
-  | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'office_end_time' | 'checkout_by'>;
+  | 'second_half_start' | 'morning_short_back' | 'checkin_extra_min' | 'office_end_time' | 'checkout_by' | 'early_checkout_before'>;
 
 /** An employee's shift ('HH:MM[:SS]') with its own timing rules; null = the company office timing. */
 export type ShiftTimes = { start_time: string; end_time: string; rules?: Partial<TimingRules> | null } | null | undefined;
@@ -58,6 +58,7 @@ export function windows(base: LateRules, shift?: ShiftTimes) {
   const shortBack = toMinutes(s.morning_short_back);
   const end = toMinutes(s.office_end_time);
   const outBy = toMinutes(s.checkout_by);
+  const earlyOut = toMinutes(s.early_checkout_before);
   return {
     /** check in by this = Present */
     start, grace, close, second, extra, end,
@@ -68,15 +69,21 @@ export function windows(base: LateRules, shift?: ShiftTimes) {
     allowed: Number(s.late_allowed_per_month ?? 3),
     /** check-out allowed until this; checked in but not out by then = Half day (null = no check-out rule) */
     checkoutBy: outBy,
+    /** checked out before this = Half day (null = no early check-out rule) */
+    earlyOut,
   };
 }
 
-/** Check-out now: allowed until the check-out deadline. */
-export function decideCheckOut(now: number, s: LateRules, shift?: ShiftTimes): { ok: true } | { ok: false; error: string } {
+/**
+ * Check-out now: allowed until the check-out deadline. Before the early check-out time it is allowed but the day becomes a
+ * Half day (`half`); the caller skips that for an evening short leave / half day.
+ */
+export function decideCheckOut(now: number, s: LateRules, shift?: ShiftTimes): { ok: true; half: boolean; earlyOut: number | null } | { ok: false; error: string } {
   const w = windows(s, shift);
   if (w?.checkoutBy != null && now > w.checkoutBy)
     return { ok: false, error: `Check-out closed at ${fmtTime(w.checkoutBy)}. You did not check out in time, so today counts as a half day.` };
-  return { ok: true };
+  const earlyOut = w?.earlyOut ?? null;
+  return { ok: true, half: earlyOut != null && now < earlyOut, earlyOut };
 }
 
 /**

@@ -6,7 +6,7 @@ import { trustedClientIp } from '@/lib/auth';
 import { todayIST } from '@/lib/geo';
 import { decidePlace, officeNetworkOf, placeRules, placeUnavailable, type CheckInSource } from '@/lib/checkin';
 import { daysInMonth } from '@/lib/dates';
-import { markDay } from '@/lib/attendance-mark';
+import { downgradeToHalf, markDay } from '@/lib/attendance-mark';
 import { decideCheckIn, decideCheckOut, fmtTime, minutesIST, windows, type CheckInDecision, type DayLeave, type ShiftTimes } from '@/lib/late';
 import type { Employee, Punch, Settings, Shift } from '@/lib/types';
 
@@ -37,6 +37,13 @@ function placeState(st: Settings, ip: string | null) {
 }
 
 /** The employee's shift with its own timing rules, or null (= the company office timing). */
+/** An evening short leave / half day today (approved or pending): leaving early is then expected, not a half day. */
+async function leavesEarlyToday(employeeId: string, day: string): Promise<boolean> {
+  const { count } = await supabaseAdmin().from('leave_requests').select('id', { count: 'exact', head: true }).eq('employee_id', employeeId)
+    .in('leave_type', ['short', 'half']).eq('short_session', 'evening').eq('start_date', day).in('status', ['approved', 'pending']);
+  return (count ?? 0) > 0;
+}
+
 async function shiftOf(me: Pick<Employee, 'shift_id'>): Promise<Shift | null> {
   if (!me.shift_id) return null;
   const { data } = await supabaseAdmin().from('shifts').select('*').eq('id', me.shift_id).maybeSingle();
@@ -108,9 +115,10 @@ export async function GET(req: Request) {
   else if (notHere) outState = { allowed: false, note: 'Connect to the office Wi-Fi to check out.' };
   else {
     const d = decideCheckOut(minutesIST(), st, shift);
-    outState = d.ok
-      ? { allowed: true, note: w?.checkoutBy != null ? `Check out by ${fmtTime(w.checkoutBy)}, or today counts as a half day.` : null }
-      : { allowed: false, note: d.error };
+    outState = !d.ok ? { allowed: false, note: d.error }
+      : d.half && !(await leavesEarlyToday(me.id, day))
+        ? { allowed: true, note: `Checking out before ${fmtTime(d.earlyOut)} counts as a half day.` }
+        : { allowed: true, note: w?.checkoutBy != null ? `Check out by ${fmtTime(w.checkoutBy)}, or today counts as a half day.` : null };
   }
   return NextResponse.json({
     punches: (data ?? []) as Punch[],
@@ -153,6 +161,7 @@ export async function POST(req: Request) {
     shiftOf(me),
   ]);
   let rule: CheckInDecision | null = null;
+  let earlyHalf: string | null = null; // checking out before the early check-out time: the day becomes a Half day
   if (b.action === 'in') {
     if (existing) return NextResponse.json({ error: 'You have already checked in today.', punch: existing }, { status: 409 });
     rule = await checkInRule(me.id, day, st, shift);
@@ -162,6 +171,7 @@ export async function POST(req: Request) {
     if ((existing as Punch).out_missed) return NextResponse.json({ error: 'You did not check out in time, so today counts as a half day.' }, { status: 400 });
     const out = decideCheckOut(minutesIST(), st, shift);
     if (!out.ok) return NextResponse.json({ error: out.error }, { status: 400 });
+    if (out.half && !(await leavesEarlyToday(me.id, day))) earlyHalf = fmtTime(out.earlyOut);
   }
 
   const [ip, source] = await Promise.all([trustedClientIp(), sourceOf()]);
@@ -196,6 +206,10 @@ export async function POST(req: Request) {
     }).eq('id', existing!.id).select('*').single();
     if (error || !data) return NextResponse.json({ error: error?.message ?? 'Could not save.' }, { status: 500 });
     punch = data as Punch;
+    if (earlyHalf) {
+      await downgradeToHalf(me.id, me.doj, Number(me.monthly_salary), day);
+      message = `Checked out before ${earlyHalf}: today is marked as a half day.`;
+    }
   }
   return NextResponse.json({ ok: true, punch, message });
 }
