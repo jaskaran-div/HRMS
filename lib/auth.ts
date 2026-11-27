@@ -82,8 +82,9 @@ export async function trustedClientIp(): Promise<string | null> {
   return xff[xff.length - 1] ?? null;
 }
 
-/** Client IP (behind nginx on EC2), for rate limits. */
-export async function clientIp(): Promise<string | null> {
-  const h = await headers();
-  return (h.get('x-forwarded-for')?.split(',')[0] ?? h.get('x-real-ip') ?? '').trim() || null;
-}
+/**
+ * Client IP (behind nginx on EC2), for rate limits. The same address as trustedClientIp(): the left-most
+ * X-Forwarded-For entry is whatever the caller sends, so keying rate limits on it let anyone skip them by
+ * sending a different value with each request.
+ */
+export const clientIp = trustedClientIp;

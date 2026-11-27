@@ -30,7 +30,14 @@ async function writeDay(
   const month = `${day.slice(0, 7)}-01`;
   const [y, m] = month.split('-').map(Number);
   const d = Number(day.slice(8, 10));
-  const { data: row } = await admin.from('attendance').select('*').eq('employee_id', employeeId).eq('month', month).maybeSingle();
+  const last = `${month.slice(0, 8)}${String(daysInMonth(y, m)).padStart(2, '0')}`;
+  // the month's row and its approved half-day leave are independent: read both in one round trip
+  const [{ data: row }, { data: halves }] = await Promise.all([
+    admin.from('attendance').select('*').eq('employee_id', employeeId).eq('month', month).maybeSingle(),
+    // half days that are approved half-day leave (paid within the monthly half-day allowance)
+    admin.from('leave_requests').select('start_date').eq('employee_id', employeeId)
+      .eq('leave_type', 'half').eq('status', 'approved').gte('start_date', month).lte('start_date', last),
+  ]);
   if (row && !row.daily) return false; // HR entered this month as totals only: leave it to HR
   const daily: Record<string, string> = { ...((row?.daily as Record<string, string> | null) ?? {}) };
   if (!may(daily[String(d)])) return false;
@@ -44,10 +51,6 @@ async function writeDay(
   const counts: Record<CountKey, number> = { present_days: 0, absent_days: 0, weekoff_days: 0, half_days: 0, leave_days: 0, holiday_days: 0, short_leave_days: 0 };
   for (const c of Object.values(daily)) if (KEY_OF[c]) counts[KEY_OF[c]]++;
 
-  // half days that are approved half-day leave (paid within the monthly half-day allowance)
-  const last = `${month.slice(0, 8)}${String(daysInMonth(y, m)).padStart(2, '0')}`;
-  const { data: halves } = await admin.from('leave_requests').select('start_date').eq('employee_id', employeeId)
-    .eq('leave_type', 'half').eq('status', 'approved').gte('start_date', month).lte('start_date', last);
   const halfDays = new Set((halves ?? []).map(h => String(Number(String(h.start_date).slice(8, 10)))));
   const half_leave_days = Object.entries(daily).filter(([k, v]) => v === 'H' && halfDays.has(k)).length;
 

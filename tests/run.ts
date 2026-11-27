@@ -160,7 +160,7 @@ test('title row above the header is skipped; "1-Feb" headers, blanks and Date ce
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Feb');
   const bytes = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  const rows = rowsFromWorkbook(XLSX.read(bytes, { type: 'buffer', cellDates: true }));
+  const rows = rowsFromWorkbook(XLSX.read(bytes, { type: 'buffer', cellDates: true }), XLSX);
   assert.equal(rows.length, 2);
   const p = parseAttendance(rows, 2026, 2);
   assert.equal(p.dayColumns, 28);
@@ -176,7 +176,7 @@ test('employee .xlsx with real date cells', () => {
     ['ISFTD0007', 'Nidhi Singh', new Date(2025, 5, 2), 20333],
   ], { cellDates: true }), 'E');
   const bytes = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  const e = parseEmployees(rowsFromWorkbook(XLSX.read(bytes, { type: 'buffer', cellDates: true }))).employees[0];
+  const e = parseEmployees(rowsFromWorkbook(XLSX.read(bytes, { type: 'buffer', cellDates: true }), XLSX)).employees[0];
   assert.equal(e.fields.doj, '2025-06-02');
   assert.equal(e.fields.monthly_salary, 20333);
 });

@@ -31,16 +31,16 @@ export async function mobileSession(): Promise<Result> {
   if (!p.employee_id)
     return { ok: false, response: NextResponse.json({ error: 'Your login is not linked to an employee record. Ask HR to link it under User Access.', code: 'not_linked' }, { status: 403 }) };
   const admin = supabaseAdmin();
-  const [{ data: settings }, { data: me }] = await Promise.all([
+  // the team leader comes embedded with the employee (as on the web portal): one round trip less on every app call
+  const [{ data: settings }, { data: row }] = await Promise.all([
     admin.from('settings').select('*').eq('org_id', g.org.id).single(),
-    admin.from('employees').select(`${SELF_COLUMNS}, extra`).eq('id', p.employee_id).maybeSingle(),
+    admin.from('employees').select(`${SELF_COLUMNS}, extra, lead:team_lead_id(${TEAM_COLUMNS}, extra)`).eq('id', p.employee_id).maybeSingle(),
   ]);
   if (!settings) return { ok: false, response: NextResponse.json({ error: 'Settings row missing.' }, { status: 500 }) };
-  if (!me || me.archived_at) return { ok: false, response: NextResponse.json({ error: 'Your employee record is inactive.', code: 'inactive' }, { status: 403 }) };
-  const self = strip(me as SelfRecord & { extra: Record<string, string> }) as SelfRecord;
-  const { data: lead } = self.team_lead_id
-    ? await admin.from('employees').select(`${TEAM_COLUMNS}, extra`).eq('id', self.team_lead_id).maybeSingle()
-    : { data: null };
+  if (!row || row.archived_at) return { ok: false, response: NextResponse.json({ error: 'Your employee record is inactive.', code: 'inactive' }, { status: 403 }) };
+  const { lead: leadRow, ...me } = row as unknown as Record<string, unknown> & { lead?: unknown };
+  const self = strip(me as unknown as SelfRecord & { extra: Record<string, string> }) as SelfRecord;
+  const lead = (Array.isArray(leadRow) ? leadRow[0] : leadRow) ?? null;
   return {
     ok: true,
     s: {

@@ -12,6 +12,14 @@ export const dynamic = 'force-dynamic';
 
 type Emp = Pick<Employee, 'id' | 'doj' | 'monthly_salary' | 'archived_at' | 'extra' | 'shift_id'>;
 
+/** Runs the jobs with at most `size` in flight. */
+async function runPool(jobs: (() => Promise<void>)[], size: number) {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(size, jobs.length) }, async () => {
+    while (next < jobs.length) await jobs[next++]();
+  }));
+}
+
 /**
  * Run every 10 minutes (crontab on the server). For each organization with an office timing rule, per employee
  * (their shift's windows, else the company's):
@@ -29,18 +37,34 @@ export async function GET(req: Request) {
   const weekOff = isWeekOff(day);
   const now = minutesIST();
   const admin = supabaseAdmin();
-  // every org: the company timing may be off while its shifts have their own (each employee is checked below)
-  const { data: all, error } = await admin.from('settings').select('*');
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // every org: the company timing may be off while its shifts have their own (each employee is checked below).
+  // Organizations and shifts of all orgs in one query each, not one query per organization.
+  const [{ data: all, error }, { data: orgs, error: orgErr }, { data: allShifts, error: shiftErr }] = await Promise.all([
+    admin.from('settings').select('*'),
+    admin.from('organizations').select('id, status, billing_exempt'),
+    admin.from('shifts').select('*'),
+  ]);
+  if (error || orgErr || shiftErr) return NextResponse.json({ error: (error ?? orgErr ?? shiftErr)!.message }, { status: 500 });
+  const orgById = new Map(((orgs ?? []) as Pick<Org, 'id' | 'status' | 'billing_exempt'>[]).map(o => [o.id, o]));
+  const shiftsByOrg = new Map<string, Shift[]>();
+  for (const s of (allShifts ?? []) as (Shift & { org_id: string })[]) shiftsByOrg.set(s.org_id, [...(shiftsByOrg.get(s.org_id) ?? []), s]);
 
   const result: Record<string, { absent: number; no_checkout: number }> = {};
+  let notDue = 0; // organizations skipped because no window has closed yet (counted, not listed: the log stays small)
   for (const st of (all ?? []) as Settings[]) {
-    const { data: org } = await admin.from('organizations').select('*').eq('id', st.org_id).maybeSingle();
-    if (!org || !orgHasAccess(org as Org)) continue;
+    const org = orgById.get(st.org_id);
+    if (!org || !orgHasAccess(org)) continue;
+    const shifts = shiftsByOrg.get(st.org_id) ?? [];
 
-    const [{ data: emps }, { data: shifts }, { data: leaves }] = await Promise.all([
+    // Nothing can be due before a window closes: an employee is only ever marked once now is past their window's
+    // deadline (absent) or check-out time (missed check-out), and each employee's window is the company's or one of
+    // these shifts'. Skipping here (most of the day, every 10 minutes) avoids loading the whole organization.
+    const due = [windows(st, null), ...shifts.map(s => windows(st, s))].some(w =>
+      !!w && ((!weekOff && now > w.deadline) || (w.checkoutBy != null && now > w.checkoutBy)));
+    if (!due) { notDue++; continue; }
+
+    const [{ data: emps }, { data: leaves }] = await Promise.all([
       admin.from('employees').select('id, doj, monthly_salary, archived_at, extra, shift_id').eq('org_id', st.org_id).is('archived_at', null),
-      admin.from('shifts').select('*').eq('org_id', st.org_id),
       // approved full-day leave today: HR fills those in from the grid, never marked absent here
       admin.from('leave_requests').select('employee_id').eq('org_id', st.org_id).eq('status', 'approved')
         .in('leave_type', ['paid', 'unpaid']).lte('start_date', day).gte('end_date', day),
@@ -50,7 +74,7 @@ export async function GET(req: Request) {
       const left = leavingDate(e as Employee);
       return !left || left >= day;
     });
-    const shiftById = new Map(((shifts ?? []) as Shift[]).map(s => [s.id, s]));
+    const shiftById = new Map(shifts.map(s => [s.id, s]));
     const ids = list.map(e => e.id);
     const punchBy = new Map<string, Punch>();
     const markedToday = new Set<string>(); // already marked (or the month entered as totals only)
@@ -69,19 +93,24 @@ export async function GET(req: Request) {
     const onLeave = new Set((leaves ?? []).map(l => l.employee_id as string));
 
     let absent = 0, noCheckout = 0;
+    const jobs: (() => Promise<void>)[] = [];
     for (const e of list) {
       const w = windows(st, e.shift_id ? shiftById.get(e.shift_id) : null);
       if (!w) continue;
       const p = punchBy.get(e.id);
       if (!p) {
         if (weekOff || onLeave.has(e.id) || markedToday.has(e.id) || now <= w.deadline) continue;
-        if (await markDay(e.id, e.doj, Number(e.monthly_salary), day, 'A')) absent++;
+        jobs.push(async () => { if (await markDay(e.id, e.doj, Number(e.monthly_salary), day, 'A')) absent++; });
       } else if (!p.out_at && !p.out_missed && w.checkoutBy != null && now > w.checkoutBy) {
-        await admin.from('attendance_punches').update({ out_missed: true }).eq('id', p.id);
-        if (await downgradeToHalf(e.id, e.doj, Number(e.monthly_salary), day)) noCheckout++;
+        jobs.push(async () => {
+          await admin.from('attendance_punches').update({ out_missed: true }).eq('id', p.id);
+          if (await downgradeToHalf(e.id, e.doj, Number(e.monthly_salary), day)) noCheckout++;
+        });
       }
     }
+    // each job touches one employee's rows only, so a few run at once (one at a time took minutes for a big org)
+    await runPool(jobs, 8);
     result[st.org_id] = { absent, no_checkout: noCheckout };
   }
-  return NextResponse.json({ day, result });
+  return NextResponse.json({ day, result, not_due: notDue });
 }

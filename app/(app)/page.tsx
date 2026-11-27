@@ -18,6 +18,10 @@ import type { Attendance, Employee, LeaveRequest } from '@/lib/types';
 
 type Leave = LeaveRequest & { employees: { name: string; emp_code: string } | null };
 
+/** What the dashboard needs per employee: counts by department and net pay (payFor reads salary, PF and TDS). */
+const DASH_EMP_COLUMNS = 'id, department, monthly_salary, pf_amount, tds_amount';
+type DashEmp = Pick<Employee, 'id' | 'department' | 'monthly_salary' | 'pf_amount' | 'tds_amount'>;
+
 export default function Dashboard() {
   const { settings, profile, canEdit, has } = useApp();
   const rules = rulesFrom(settings);
@@ -25,16 +29,22 @@ export default function Dashboard() {
 
   const { data, loading, error, reload } = useLoad(async () => {
     const sb = supabaseBrowser();
-    const [emps, latest, waiting, away] = await Promise.all([
-      fetchAll<Employee>((a, b) => sb.from('employees').select('*').is('archived_at', null).order('emp_code').range(a, b)),
+    // two rounds instead of four: only the latest month's attendance and payslip count wait for the first round.
+    // Employees: just the columns the dashboard uses (not the imported sheet's extra columns, bank details…).
+    const [emps, latest, waiting, away, { count: waitingCount }] = await Promise.all([
+      fetchAll<DashEmp>((a, b) => sb.from('employees').select(DASH_EMP_COLUMNS).is('archived_at', null).order('emp_code').range(a, b)),
       sb.from('attendance').select('month').order('month', { ascending: false }).limit(1),
       sb.from('leave_requests').select('*, employees(name, emp_code)').eq('status', 'pending').eq('hr_status', 'pending').order('start_date').limit(6),
       sb.from('leave_requests').select('*, employees(name, emp_code)').eq('status', 'approved').lte('start_date', today).gte('end_date', today),
+      sb.from('leave_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending').eq('hr_status', 'pending'),
     ]);
     const month: string | null = latest.data?.[0]?.month ?? null;
-    const att = month ? await fetchAll<Attendance>((a, b) => sb.from('attendance').select('*').eq('month', month).range(a, b)) : [];
-    const { count } = month ? await sb.from('payslips').select('id', { count: 'exact', head: true }).eq('month', month) : { count: 0 };
-    const { count: waitingCount } = await sb.from('leave_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending').eq('hr_status', 'pending');
+    const [att, { count }] = month
+      ? await Promise.all([
+        fetchAll<Attendance>((a, b) => sb.from('attendance').select('*').eq('month', month).range(a, b)),
+        sb.from('payslips').select('id', { count: 'exact', head: true }).eq('month', month),
+      ])
+      : [[] as Attendance[], { count: 0 }];
     return {
       emps, month, att, slips: count ?? 0, waiting: (waiting.data ?? []) as Leave[], waitingCount: waitingCount ?? 0,
       away: (away.data ?? []) as Leave[],
@@ -45,7 +55,7 @@ export default function Dashboard() {
     if (!data) return null;
     const attBy = new Map(data.att.map(a => [a.employee_id, a]));
     let net = 0;
-    for (const e of data.emps) { const a = attBy.get(e.id); if (a) net += payFor(e, a, rules).net; }
+    for (const e of data.emps) { const a = attBy.get(e.id); if (a) net += payFor(e as Employee, a, rules).net; }
     const depts = new Map<string, number>();
     data.emps.forEach(e => depts.set(e.department || 'Unassigned', (depts.get(e.department || 'Unassigned') ?? 0) + 1));
 

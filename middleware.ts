@@ -23,7 +23,12 @@ export async function middleware(req: NextRequest) {
     },
   });
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // getClaims(): refreshes an expired session (as getUser did) and then verifies the access token's signature
+  // locally with the project's public signing key (cached in memory), instead of asking Supabase Auth over the
+  // network on every page and API request. This is only the "logged in at all?" gate: every page / API route
+  // still checks the login with Supabase Auth itself (webSession / portalSession / guard → getUser).
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims?.sub ? { id: data.claims.sub } : null;
   const path = req.nextUrl.pathname;
 
   if (!user && !PUBLIC.test(path)) {
@@ -44,5 +49,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   // everything except static files, the cron endpoint (checks its own secret) and the Stripe webhook (checks its signature)
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/cron|api/stripe/webhook).*)'],
+  // (and the health check, which load balancers / uptime monitors call without a login)
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/cron|api/stripe/webhook|api/health).*)'],
 };

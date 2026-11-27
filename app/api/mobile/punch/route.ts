@@ -37,17 +37,32 @@ function placeState(st: Settings, ip: string | null) {
 }
 
 /** The employee's shift with its own timing rules, or null (= the company office timing). */
-/** An evening short leave / half day today (approved or pending): leaving early is then expected, not a half day. */
-async function leavesEarlyToday(employeeId: string, day: string): Promise<boolean> {
-  const { count } = await supabaseAdmin().from('leave_requests').select('id', { count: 'exact', head: true }).eq('employee_id', employeeId)
-    .in('leave_type', ['short', 'half']).eq('short_session', 'evening').eq('start_date', day).in('status', ['approved', 'pending']);
-  return (count ?? 0) > 0;
-}
-
 async function shiftOf(me: Pick<Employee, 'shift_id'>): Promise<Shift | null> {
   if (!me.shift_id) return null;
   const { data } = await supabaseAdmin().from('shifts').select('*').eq('id', me.shift_id).maybeSingle();
   return (data as Shift | null) ?? null;
+}
+
+type TodayLeave = { leave_type: string; short_session: string | null; status: string };
+
+/**
+ * The employee's short leaves / half days today (approved or pending). Read once per request, together with today's
+ * punch: both the check-in rule and the early check-out rule are decided from it.
+ */
+async function todayLeaves(employeeId: string, day: string): Promise<TodayLeave[]> {
+  const { data } = await supabaseAdmin().from('leave_requests').select('leave_type, short_session, status').eq('employee_id', employeeId)
+    .in('leave_type', ['short', 'half']).eq('start_date', day).in('status', ['approved', 'pending']);
+  return (data ?? []) as TodayLeave[];
+}
+
+/** An evening short leave / half day today (approved or pending): leaving early is then expected, not a half day. */
+const leavesEarly = (leaves: TodayLeave[]) => leaves.some(l => l.short_session === 'evening');
+
+/** Late check-ins earlier this month (the monthly late allowance). */
+async function lateCount(employeeId: string, day: string): Promise<number> {
+  const { count } = await supabaseAdmin().from('attendance_punches').select('id', { count: 'exact', head: true }).eq('employee_id', employeeId)
+    .eq('in_status', 'late').gte('day', `${day.slice(0, 7)}-01`).lt('day', day);
+  return count ?? 0;
 }
 
 /**
@@ -55,19 +70,12 @@ async function shiftOf(me: Pick<Employee, 'shift_id'>): Promise<Shift | null> {
  * happening now: the late allowance, the morning / second-half check-in windows, and the employee's morning or evening
  * short leave / half day that day (approved, or still pending).
  */
-async function checkInRule(employeeId: string, day: string, st: Settings, shift: ShiftTimes): Promise<CheckInDecision> {
-  const admin = supabaseAdmin();
-  const [{ data: leaves }, { count }] = await Promise.all([
-    admin.from('leave_requests').select('leave_type, short_session, status').eq('employee_id', employeeId)
-      .in('leave_type', ['short', 'half']).eq('start_date', day).in('status', ['approved', 'pending']),
-    admin.from('attendance_punches').select('id', { count: 'exact', head: true }).eq('employee_id', employeeId)
-      .eq('in_status', 'late').gte('day', `${day.slice(0, 7)}-01`).lt('day', day),
-  ]);
+function checkInRule(st: Settings, shift: ShiftTimes, leaves: TodayLeave[], late: number): CheckInDecision {
   // a half day outweighs a short leave; an approved one outweighs a pending one
-  const l = [...(leaves ?? [])].sort((a, b) => (a.leave_type === 'half' ? -1 : 1) - (b.leave_type === 'half' ? -1 : 1)
+  const l = [...leaves].sort((a, b) => (a.leave_type === 'half' ? -1 : 1) - (b.leave_type === 'half' ? -1 : 1)
     || (a.status === 'approved' ? -1 : 1) - (b.status === 'approved' ? -1 : 1))[0];
-  const leave: DayLeave | null = l ? { type: l.leave_type, session: l.short_session ?? null, approved: l.status === 'approved' } : null;
-  return decideCheckIn(minutesIST(), st, count ?? 0, leave, shift);
+  const leave: DayLeave | null = l ? { type: l.leave_type as DayLeave['type'], session: (l.short_session ?? null) as DayLeave['session'], approved: l.status === 'approved' } : null;
+  return decideCheckIn(minutesIST(), st, late, leave, shift);
 }
 
 /**
@@ -83,12 +91,13 @@ export async function GET(req: Request) {
   const ym = ymParam(sp.get('month')) ?? day.slice(0, 7);
   const [y, m] = ym.split('-').map(Number);
   const admin = supabaseAdmin();
-  const [{ data, error }, { data: mine }, shift] = await Promise.all([
-    // ?only=today (the web portal's check-in card): no month list
+  const [{ data, error }, { data: mine }, shift, leaves] = await Promise.all([
+    // ?only=today (the web portal's check-in card, the app's 30 s refresh): no month list
     sp.get('only') === 'today' ? Promise.resolve({ data: [], error: null }) : admin.from('attendance_punches').select('*').eq('employee_id', me.id)
       .gte('day', `${ym}-01`).lte('day', `${ym}-${String(daysInMonth(y, m)).padStart(2, '0')}`).order('day', { ascending: false }),
     admin.from('attendance_punches').select('*').eq('employee_id', me.id).eq('day', day).maybeSingle(),
     shiftOf(me),
+    todayLeaves(me.id, day),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -103,7 +112,7 @@ export async function GET(req: Request) {
   else if (off) inState = { allowed: false, note: off };
   else if (notHere) inState = { allowed: false, note: 'Connect to the office Wi-Fi to check in.' };
   else {
-    const d = await checkInRule(me.id, day, st, shift);
+    const d = checkInRule(st, shift, leaves, await lateCount(me.id, day));
     inState = d.ok
       ? { allowed: true, note: d.status === 'half_day' || d.code === 'H' ? 'Checking in now counts as a half day.' : d.status === 'late' ? 'Checking in now counts as a late check-in.' : null }
       : { allowed: false, note: d.error };
@@ -116,7 +125,7 @@ export async function GET(req: Request) {
   else {
     const d = decideCheckOut(minutesIST(), st, shift);
     outState = !d.ok ? { allowed: false, note: d.error }
-      : d.half && !(await leavesEarlyToday(me.id, day))
+      : d.half && !leavesEarly(leaves)
         ? { allowed: true, note: `Checking out before ${fmtTime(d.earlyOut)} counts as a half day.` }
         : { allowed: true, note: w?.checkoutBy != null ? `Check out by ${fmtTime(w.checkoutBy)}, or today counts as a half day.` : null };
   }
@@ -156,22 +165,25 @@ export async function POST(req: Request) {
   // time rules first: no point asking for a GPS fix when the window is closed anyway
   const admin = supabaseAdmin();
   const day = todayIST();
-  const [{ data: existing }, shift] = await Promise.all([
+  // everything the rules need, in one round trip (the late count only matters for a check-in)
+  const [{ data: existing }, shift, leaves, late] = await Promise.all([
     admin.from('attendance_punches').select('*').eq('employee_id', me.id).eq('day', day).maybeSingle(),
     shiftOf(me),
+    todayLeaves(me.id, day),
+    b.action === 'in' ? lateCount(me.id, day) : Promise.resolve(0),
   ]);
   let rule: CheckInDecision | null = null;
   let earlyHalf: string | null = null; // checking out before the early check-out time: the day becomes a Half day
   if (b.action === 'in') {
     if (existing) return NextResponse.json({ error: 'You have already checked in today.', punch: existing }, { status: 409 });
-    rule = await checkInRule(me.id, day, st, shift);
+    rule = checkInRule(st, shift, leaves, late);
     if (!rule.ok) return NextResponse.json({ error: rule.error }, { status: 400 });
   } else {
     if (!existing) return NextResponse.json({ error: 'Check in first.' }, { status: 400 });
     if ((existing as Punch).out_missed) return NextResponse.json({ error: 'You did not check out in time, so today counts as a half day.' }, { status: 400 });
     const out = decideCheckOut(minutesIST(), st, shift);
     if (!out.ok) return NextResponse.json({ error: out.error }, { status: 400 });
-    if (out.half && !(await leavesEarlyToday(me.id, day))) earlyHalf = fmtTime(out.earlyOut);
+    if (out.half && !leavesEarly(leaves)) earlyHalf = fmtTime(out.earlyOut);
   }
 
   const [ip, source] = await Promise.all([trustedClientIp(), sourceOf()]);
